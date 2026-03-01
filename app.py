@@ -5,10 +5,16 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from ta.momentum import RSIIndicator
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
 from datetime import datetime, timedelta
-import time
+
+# Attempt to import sklearn – fallback if not available
+try:
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.preprocessing import StandardScaler
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    st.warning("scikit‑learn not installed – AI swing scanner disabled, using rule‑based only.")
 
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
@@ -265,43 +271,43 @@ def screen_stock(fund):
     return rec, criteria
 
 # ------------------------------
-# AI‑BASED SWING SCANNER
+# AI‑BASED SWING SCANNER (with fallback)
 # ------------------------------
-@st.cache_data(ttl=3600)
-def train_swing_model(ticker):
-    """Train a simple RandomForest model to predict next-day direction."""
-    df = get_price_data(ticker)
-    if df.empty or len(df) < 100:
+def train_simple_model(df):
+    """Train a simple RandomForest on the given dataframe (no parallelism)."""
+    if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
         return None, None
-    df = df.copy()
-    close = df['Close'].astype(float)
-    df['RSI'] = RSIIndicator(close).rsi()
-    df['MA20'] = close.rolling(20).mean()
-    df['MA50'] = close.rolling(50).mean()
-    df['Volume_Change'] = df['Volume'].pct_change()
-    df['High_Low'] = (df['High'] - df['Low']) / close
-    df['Close_MA20'] = close / df['MA20']
-    df['Target'] = (close.shift(-5) > close * 1.05).astype(int)  # 5% up in 5 days
-    df.dropna(inplace=True)
-    if len(df) < 50:
+    try:
+        close = df['Close'].astype(float)
+        df_model = df.copy()
+        df_model['RSI'] = RSIIndicator(close).rsi()
+        df_model['MA20'] = close.rolling(20).mean()
+        df_model['Close_MA20'] = close / df_model['MA20']
+        df_model['High_Low'] = (df_model['High'] - df_model['Low']) / close
+        df_model['Volume_Change'] = df_model['Volume'].pct_change()
+        df_model['Target'] = (close.shift(-5) > close * 1.05).astype(int)  # 5% up in 5 days
+        df_model.dropna(inplace=True)
+        if len(df_model) < 50:
+            return None, None
+        features = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
+        X = df_model[features]
+        y = df_model['Target']
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        model = RandomForestClassifier(n_estimators=30, max_depth=4, random_state=42)
+        model.fit(X_scaled, y)
+        return model, scaler
+    except Exception:
         return None, None
-    features = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
-    X = df[features]
-    y = df['Target']
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    model = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
-    model.fit(X_scaled, y)
-    return model, scaler
 
 def ai_swing_signal(df, name):
     if df.empty or len(df) < 50:
         return None
     try:
-        # First, use rule-based for consistency
         close = df['Close'].astype(float)
         high = df['High'].astype(float)
         low = df['Low'].astype(float)
+
         rsi = RSIIndicator(close).rsi()
         current_rsi = rsi.iloc[-1]
         ma20 = close.rolling(20).mean()
@@ -310,25 +316,27 @@ def ai_swing_signal(df, name):
         recent_low = low[-20:].min()
         current_price = close.iloc[-1]
 
-        # AI prediction (if model available)
-        ticker = ALL_STOCKS[name]
-        model, scaler = train_swing_model(ticker)
-        ai_confidence = 0
-        if model is not None and scaler is not None:
-            df_ai = df.copy()
-            df_ai['MA20'] = close.rolling(20).mean()
-            df_ai['Close_MA20'] = close / df_ai['MA20']
-            df_ai['High_Low'] = (df_ai['High'] - df_ai['Low']) / close
-            df_ai['Volume_Change'] = df_ai['Volume'].pct_change()
-            features = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
-            last_row = df_ai[features].iloc[-1:].fillna(0)
-            last_scaled = scaler.transform(last_row)
-            pred_proba = model.predict_proba(last_scaled)[0]
-            ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
+        # Rule base
+        rule_buy = (current_rsi < 45 and ma20.iloc[-1] > ma50.iloc[-1] and current_price > recent_low * 1.02)
 
-        # Combine rules and AI
-        rule_based = (current_rsi < 45 and ma20.iloc[-1] > ma50.iloc[-1] and current_price > recent_low * 1.02)
-        if rule_based or ai_confidence > 0.6:
+        # AI prediction if available
+        ai_confidence = 0.0
+        if SKLEARN_AVAILABLE:
+            model, scaler = train_simple_model(df)
+            if model is not None and scaler is not None:
+                # Prepare last row features
+                last_rsi = current_rsi
+                last_ma20 = ma20.iloc[-1]
+                last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
+                last_high_low = (high.iloc[-1] - low.iloc[-1]) / current_price
+                last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
+                features = np.array([[last_rsi, last_close_ma20, last_high_low, last_vol_change]])
+                features_scaled = scaler.transform(features)
+                pred_proba = model.predict_proba(features_scaled)[0]
+                ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
+
+        # Combine
+        if rule_buy or ai_confidence > 0.6:
             signal = "SWING BUY"
             entry = current_price
             target = recent_high
@@ -345,11 +353,11 @@ def ai_swing_signal(df, name):
             'Stock': name,
             'Signal': signal,
             'RSI': round(current_rsi, 1),
-            'AI Confidence': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
+            'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
             'Entry': round(entry, 2) if not pd.isna(entry) else '-',
             'Target': round(target, 2) if not pd.isna(target) else '-',
             'Stop Loss': round(stop_loss, 2) if not pd.isna(stop_loss) else '-',
-            'Holding (days)': int(holding_days) if not pd.isna(holding_days) else '-'
+            'Holding': int(holding_days) if not pd.isna(holding_days) else '-'
         }
     except Exception:
         return None
@@ -368,7 +376,7 @@ if 'total_cost' not in st.session_state:
 if 'buy_count' not in st.session_state:
     st.session_state.buy_count = 0
 if 'swing_history' not in st.session_state:
-    st.session_state.swing_history = {}  # stock -> last signal date
+    st.session_state.swing_history = {}
 
 # ------------------------------
 # HEADER
