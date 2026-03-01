@@ -5,26 +5,20 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from ta.momentum import RSIIndicator
-from datetime import datetime
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from datetime import datetime, timedelta
+import time
 
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# CUSTOM CSS – Professional Dashboard
+# CUSTOM CSS (professional)
 # ------------------------------
 st.markdown("""
 <style>
-    /* Main background */
-    .stApp {
-        background-color: #f0f2f6;
-    }
-    /* Headers */
-    h1, h2, h3 {
-        font-family: 'Inter', sans-serif;
-        font-weight: 600;
-        color: #0f172a;
-    }
-    /* Metric cards */
+    .stApp { background-color: #f0f2f6; }
+    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 600; color: #0f172a; }
     .metric-card {
         background: white;
         padding: 1.5rem;
@@ -64,16 +58,16 @@ st.markdown("""
         font-weight: 600;
         display: inline-block;
     }
-    .hold-tag {
-        background: #fff3cd;
-        color: #856404;
+    .fresh-tag {
+        background: #cffafe;
+        color: #0e7490;
         padding: 0.25rem 0.8rem;
         border-radius: 30px;
         font-size: 0.8rem;
         font-weight: 600;
         display: inline-block;
+        margin-left: 0.5rem;
     }
-    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
         background-color: white;
@@ -90,7 +84,6 @@ st.markdown("""
         background-color: #1e293b;
         color: white !important;
     }
-    /* Dataframes */
     .stDataFrame {
         border-radius: 16px;
         border: 1px solid #e2e8f0;
@@ -103,7 +96,6 @@ st.markdown("""
         height: 1px;
         background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
     }
-    /* Sidebar (removed) but we keep main area clean */
     .main-header {
         display: flex;
         align-items: center;
@@ -117,11 +109,18 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
+    .input-section {
+        background: white;
+        padding: 2rem;
+        border-radius: 20px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        margin-top: 2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# MASTER STOCK LIST (all NSE stocks you provided)
+# MASTER STOCK LIST
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -160,7 +159,7 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING FUNCTIONS (cached)
+# DATA FETCHING (cached)
 # ------------------------------
 @st.cache_data(ttl=3600)
 def get_price_data(ticker):
@@ -201,7 +200,7 @@ def get_fundamental_data(ticker):
         if not pd.isna(profit_growth):
             profit_growth = profit_growth * 100
 
-        market_cap = info.get('marketCap', 0) / 1e7  # in Crores
+        market_cap = info.get('marketCap', 0) / 1e7
 
         ebit = get_latest(financials, 'EBIT')
         total_assets = get_latest(balance_sheet, 'Total Assets')
@@ -245,9 +244,6 @@ def get_fundamental_data(ticker):
     except Exception:
         return None
 
-# ------------------------------
-# STRICT SCREENING (all 9 conditions)
-# ------------------------------
 def screen_stock(fund):
     if fund is None:
         return "HOLD", {}
@@ -269,27 +265,70 @@ def screen_stock(fund):
     return rec, criteria
 
 # ------------------------------
-# SWING SIGNAL GENERATION
+# AI‑BASED SWING SCANNER
 # ------------------------------
-def swing_signal(df, name):
+@st.cache_data(ttl=3600)
+def train_swing_model(ticker):
+    """Train a simple RandomForest model to predict next-day direction."""
+    df = get_price_data(ticker)
+    if df.empty or len(df) < 100:
+        return None, None
+    df = df.copy()
+    close = df['Close'].astype(float)
+    df['RSI'] = RSIIndicator(close).rsi()
+    df['MA20'] = close.rolling(20).mean()
+    df['MA50'] = close.rolling(50).mean()
+    df['Volume_Change'] = df['Volume'].pct_change()
+    df['High_Low'] = (df['High'] - df['Low']) / close
+    df['Close_MA20'] = close / df['MA20']
+    df['Target'] = (close.shift(-5) > close * 1.05).astype(int)  # 5% up in 5 days
+    df.dropna(inplace=True)
+    if len(df) < 50:
+        return None, None
+    features = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
+    X = df[features]
+    y = df['Target']
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    model = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
+    model.fit(X_scaled, y)
+    return model, scaler
+
+def ai_swing_signal(df, name):
     if df.empty or len(df) < 50:
         return None
     try:
+        # First, use rule-based for consistency
         close = df['Close'].astype(float)
         high = df['High'].astype(float)
         low = df['Low'].astype(float)
-
         rsi = RSIIndicator(close).rsi()
         current_rsi = rsi.iloc[-1]
-
         ma20 = close.rolling(20).mean()
         ma50 = close.rolling(50).mean()
-
         recent_high = high[-20:].max()
         recent_low = low[-20:].min()
         current_price = close.iloc[-1]
 
-        if current_rsi < 40 and ma20.iloc[-1] > ma50.iloc[-1] and current_price > recent_low * 1.02:
+        # AI prediction (if model available)
+        ticker = ALL_STOCKS[name]
+        model, scaler = train_swing_model(ticker)
+        ai_confidence = 0
+        if model is not None and scaler is not None:
+            df_ai = df.copy()
+            df_ai['MA20'] = close.rolling(20).mean()
+            df_ai['Close_MA20'] = close / df_ai['MA20']
+            df_ai['High_Low'] = (df_ai['High'] - df_ai['Low']) / close
+            df_ai['Volume_Change'] = df_ai['Volume'].pct_change()
+            features = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
+            last_row = df_ai[features].iloc[-1:].fillna(0)
+            last_scaled = scaler.transform(last_row)
+            pred_proba = model.predict_proba(last_scaled)[0]
+            ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
+
+        # Combine rules and AI
+        rule_based = (current_rsi < 45 and ma20.iloc[-1] > ma50.iloc[-1] and current_price > recent_low * 1.02)
+        if rule_based or ai_confidence > 0.6:
             signal = "SWING BUY"
             entry = current_price
             target = recent_high
@@ -306,6 +345,7 @@ def swing_signal(df, name):
             'Stock': name,
             'Signal': signal,
             'RSI': round(current_rsi, 1),
+            'AI Confidence': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
             'Entry': round(entry, 2) if not pd.isna(entry) else '-',
             'Target': round(target, 2) if not pd.isna(target) else '-',
             'Stop Loss': round(stop_loss, 2) if not pd.isna(stop_loss) else '-',
@@ -315,7 +355,7 @@ def swing_signal(df, name):
         return None
 
 # ------------------------------
-# INITIALIZE SESSION STATE
+# SESSION STATE
 # ------------------------------
 if 'holdings_df' not in st.session_state:
     st.session_state.holdings_df = None
@@ -327,50 +367,244 @@ if 'total_cost' not in st.session_state:
     st.session_state.total_cost = 0
 if 'buy_count' not in st.session_state:
     st.session_state.buy_count = 0
+if 'swing_history' not in st.session_state:
+    st.session_state.swing_history = {}  # stock -> last signal date
 
 # ------------------------------
 # HEADER
 # ------------------------------
-st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#64748b;">Professional Edition</span></div>', unsafe_allow_html=True)
-st.markdown("#### Institutional‑grade analytics for your long‑term and swing portfolios")
+st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#64748b;">AI‑Powered Edition</span></div>', unsafe_allow_html=True)
+st.markdown("#### Institutional‑grade analytics with AI swing scanner & fundamental screener")
 
-# Input row
+# ------------------------------
+# SWING TRADING SECTION (top)
+# ------------------------------
+st.markdown("## 🤖 AI Swing Trading Scanner")
+st.caption("Scanning all stocks daily. Signals combine technical rules with RandomForest AI (trained on 5‑day forward returns). Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days.")
+
+# Generate swing signals
+swing_data = []
+today = datetime.now().date()
+for name, ticker in ALL_STOCKS.items():
+    df = get_price_data(ticker)
+    sig = ai_swing_signal(df, name)
+    if sig and sig['Signal'] == 'SWING BUY':
+        # Check freshness
+        last_seen = st.session_state.swing_history.get(name)
+        if last_seen is None or (today - last_seen).days >= 5:
+            sig['Fresh'] = '✅ Fresh'
+            st.session_state.swing_history[name] = today
+        else:
+            sig['Fresh'] = ''
+        swing_data.append(sig)
+
+if swing_data:
+    swing_df = pd.DataFrame(swing_data)
+    # Highlight fresh signals
+    def highlight_fresh(row):
+        if row['Fresh'] == '✅ Fresh':
+            return ['background-color: #cffafe'] * len(row)
+        elif row['Signal'] == 'SWING BUY':
+            return ['background-color: #d4edda'] * len(row)
+        return [''] * len(row)
+    st.dataframe(swing_df.style.apply(highlight_fresh, axis=1), use_container_width=True)
+else:
+    st.info("No swing buy signals today.")
+
+st.markdown("---")
+
+# ------------------------------
+# HOLDINGS PROCESSING (if any)
+# ------------------------------
+if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
+    if st.session_state.portfolio_df is None:
+        portfolio_data = []
+        total_value = 0
+        total_cost = 0
+        buy_count = 0
+        progress_bar = st.progress(0, text="Analyzing holdings...")
+        for idx, row in st.session_state.holdings_df.iterrows():
+            name = row['Instrument']
+            ticker = ALL_STOCKS.get(name)
+            price_df = get_price_data(ticker)
+            if price_df.empty:
+                continue
+            current_price = price_df['Close'].iloc[-1]
+            cur_value = row['Qty'] * current_price
+            if not pd.isna(row['Avg Price']):
+                pnl = row['Qty'] * (current_price - row['Avg Price'])
+                pnl_pct = (current_price - row['Avg Price']) / row['Avg Price'] * 100
+            else:
+                pnl = np.nan
+                pnl_pct = np.nan
+            fund = get_fundamental_data(ticker)
+            rec, _ = screen_stock(fund)
+            if rec == "BUY":
+                buy_count += 1
+            portfolio_data.append({
+                'Stock': name,
+                'Qty': row['Qty'],
+                'Avg Price': row['Avg Price'],
+                'LTP (CSV)': row['LTP'],
+                'Current Price': current_price,
+                'Cur Value': cur_value,
+                'P&L': pnl,
+                'P&L %': pnl_pct,
+                'Recommendation': rec,
+            })
+            total_value += cur_value
+            if not pd.isna(row['Avg Price']):
+                total_cost += row['Qty'] * row['Avg Price']
+            progress_bar.progress((idx+1)/len(st.session_state.holdings_df))
+        progress_bar.empty()
+        st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
+        st.session_state.total_value = total_value
+        st.session_state.total_cost = total_cost
+        st.session_state.buy_count = buy_count
+
+    # Metrics cards
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Total Portfolio Value</div>
+            <div class="metric-value">₹{st.session_state.total_value:,.0f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        if st.session_state.total_cost > 0:
+            total_pnl = st.session_state.total_value - st.session_state.total_cost
+            total_pnl_pct = (total_pnl / st.session_state.total_cost) * 100
+            delta_color = "green" if total_pnl >= 0 else "red"
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">Total P&L</div>
+                <div class="metric-value">₹{total_pnl:+,.0f}</div>
+                <div class="metric-delta" style="color:{delta_color};">{total_pnl_pct:+.2f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">Total P&L</div>
+                <div class="metric-value">N/A</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Stocks Meeting All Criteria</div>
+            <div class="metric-value">{st.session_state.buy_count}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Portfolio Size</div>
+            <div class="metric-value">{len(st.session_state.portfolio_df)}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Allocation pie
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.subheader("Portfolio Allocation by Value")
+        if not st.session_state.portfolio_df.empty:
+            fig = px.pie(st.session_state.portfolio_df, values='Cur Value', names='Stock', title='Current Allocation')
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No data for pie chart.")
+    with col2:
+        st.subheader("Performance Sparkline (Last Month)")
+        st.info("Historical portfolio performance will appear here (requires multi‑stock history).")
+
+    st.markdown("---")
+
+    # TABS for Holdings and Charts
+    tab1, tab2 = st.tabs(["📊 Holdings & Recommendations", "📈 Charts"])
+    with tab1:
+        st.subheader("Your Holdings – Long‑Term Analysis")
+        st.caption("BUY = meets all 9 fundamental criteria. HOLD = fails at least one.")
+        st.dataframe(
+            st.session_state.portfolio_df.style.format({
+                'Avg Price': '₹{:.2f}',
+                'LTP (CSV)': '₹{:.2f}',
+                'Current Price': '₹{:.2f}',
+                'Cur Value': '₹{:.2f}',
+                'P&L': '₹{:.2f}',
+                'P&L %': '{:+.2f}%'
+            }, na_rep='-').applymap(
+                lambda x: 'background-color: #d4edda' if x == 'BUY' else ('background-color: #fff3cd' if x == 'HOLD' else ''),
+                subset=['Recommendation']
+            ),
+            use_container_width=True
+        )
+    with tab2:
+        st.subheader("Price Chart")
+        if not st.session_state.portfolio_df.empty:
+            selected = st.selectbox("Select stock", st.session_state.portfolio_df['Stock'].tolist())
+            ticker = ALL_STOCKS[selected]
+            df = get_price_data(ticker)
+            if not df.empty:
+                fig = go.Figure(data=[go.Candlestick(
+                    x=df.index,
+                    open=df['Open'], high=df['High'],
+                    low=df['Low'], close=df['Close'],
+                    name='Price'
+                )])
+                fig.update_layout(title=f"{selected} – 6 Months", height=450)
+                st.plotly_chart(fig, use_container_width=True)
+
+                close = df['Close'].astype(float)
+                rsi = RSIIndicator(close).rsi()
+                fig2 = px.line(y=rsi, title="RSI (14)")
+                fig2.add_hline(y=70, line_dash="dash", line_color="red")
+                fig2.add_hline(y=30, line_dash="dash", line_color="green")
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.warning("No chart data.")
+        else:
+            st.info("No stocks to display.")
+else:
+    st.info("No holdings data. Please add stocks using the section below.")
+
+# ------------------------------
+# INPUT SECTION AT BOTTOM
+# ------------------------------
+st.markdown('<div class="input-section">', unsafe_allow_html=True)
+st.subheader("📁 Add Holdings")
 col1, col2 = st.columns([2, 1])
 with col1:
-    uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader")
+    uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
 with col2:
     single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA").strip().upper()
 
-# Process uploaded file (only if new file uploaded)
 if uploaded_file is not None:
     try:
         raw_df = pd.read_csv(uploaded_file, skipinitialspace=True, engine='python')
         raw_df = raw_df.loc[:, ~raw_df.columns.str.contains('^Unnamed')]
-        
         if raw_df.shape[1] < 8:
             st.error(f"CSV has only {raw_df.shape[1]} columns. Expected at least 8.")
         else:
             df_hold = raw_df.iloc[:, :8].copy()
             df_hold.columns = ['Instrument', 'Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']
-            
             df_hold['Instrument'] = df_hold['Instrument'].astype(str).str.strip().str.upper()
             df_hold = df_hold[df_hold['Instrument'].notna() & (df_hold['Instrument'] != '') & (df_hold['Instrument'] != 'NAN')]
-            
             for col in ['Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']:
                 df_hold[col] = pd.to_numeric(df_hold[col], errors='coerce')
-            
-            # Filter to master list
             original_len = len(df_hold)
             df_hold = df_hold[df_hold['Instrument'].isin(ALL_STOCKS.keys())]
             if len(df_hold) == 0:
                 st.error("No stocks from your CSV are in the master list.")
             else:
                 st.session_state.holdings_df = df_hold
+                st.session_state.portfolio_df = None
                 st.success(f"Loaded {len(df_hold)} stocks from CSV.")
+                st.rerun()
     except Exception as e:
         st.error(f"Error reading CSV: {e}")
 
-# Add single stock
 if single_stock:
     if single_stock in ALL_STOCKS:
         new_row = pd.DataFrame({
@@ -386,213 +620,20 @@ if single_stock:
         if st.session_state.holdings_df is not None:
             if single_stock not in st.session_state.holdings_df['Instrument'].values:
                 st.session_state.holdings_df = pd.concat([st.session_state.holdings_df, new_row], ignore_index=True)
+                st.session_state.portfolio_df = None
                 st.success(f"Added {single_stock}.")
+                st.rerun()
             else:
                 st.warning(f"{single_stock} already in holdings.")
         else:
             st.session_state.holdings_df = new_row
+            st.session_state.portfolio_df = None
             st.success(f"Added {single_stock}.")
+            st.rerun()
     else:
         st.error(f"{single_stock} not found in master list.")
 
-# If no data, stop
-if st.session_state.holdings_df is None or st.session_state.holdings_df.empty:
-    st.info("👆 Please upload a CSV or add a stock to begin.")
-    st.stop()
-
-# ------------------------------
-# PROCESS HOLDINGS (only if not already processed or data changed)
-# ------------------------------
-# We'll process each time (fast due to caching) but could add a flag.
-portfolio_data = []
-total_value = 0
-total_cost = 0
-buy_count = 0
-
-progress_bar = st.progress(0, text="Analyzing holdings...")
-for idx, row in st.session_state.holdings_df.iterrows():
-    name = row['Instrument']
-    ticker = ALL_STOCKS.get(name)
-
-    price_df = get_price_data(ticker)
-    if price_df.empty:
-        st.warning(f"No price data for {name}. Skipping.")
-        continue
-
-    current_price = price_df['Close'].iloc[-1]
-    cur_value = row['Qty'] * current_price
-    if not pd.isna(row['Avg Price']):
-        pnl = row['Qty'] * (current_price - row['Avg Price'])
-        pnl_pct = (current_price - row['Avg Price']) / row['Avg Price'] * 100
-    else:
-        pnl = np.nan
-        pnl_pct = np.nan
-
-    fund = get_fundamental_data(ticker)
-    rec, _ = screen_stock(fund)
-    if rec == "BUY":
-        buy_count += 1
-
-    portfolio_data.append({
-        'Stock': name,
-        'Qty': row['Qty'],
-        'Avg Price': row['Avg Price'],
-        'LTP (CSV)': row['LTP'],
-        'Current Price': current_price,
-        'Cur Value': cur_value,
-        'P&L': pnl,
-        'P&L %': pnl_pct,
-        'Recommendation': rec,
-    })
-
-    total_value += cur_value
-    if not pd.isna(row['Avg Price']):
-        total_cost += row['Qty'] * row['Avg Price']
-
-    progress_bar.progress((idx+1)/len(st.session_state.holdings_df))
-progress_bar.empty()
-
-st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
-st.session_state.total_value = total_value
-st.session_state.total_cost = total_cost
-st.session_state.buy_count = buy_count
-
-# ------------------------------
-# DASHBOARD METRICS CARDS
-# ------------------------------
-st.markdown("---")
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Total Portfolio Value</div>
-        <div class="metric-value">₹{total_value:,.0f}</div>
-    </div>
-    """, unsafe_allow_html=True)
-with col2:
-    if total_cost > 0:
-        total_pnl = total_value - total_cost
-        total_pnl_pct = (total_pnl / total_cost) * 100
-        delta_color = "green" if total_pnl >= 0 else "red"
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Total P&L</div>
-            <div class="metric-value">₹{total_pnl:+,.0f}</div>
-            <div class="metric-delta" style="color:{delta_color};">{total_pnl_pct:+.2f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Total P&L</div>
-            <div class="metric-value">N/A</div>
-        </div>
-        """, unsafe_allow_html=True)
-with col3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Stocks Meeting All Criteria</div>
-        <div class="metric-value">{buy_count}</div>
-    </div>
-    """, unsafe_allow_html=True)
-with col4:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Portfolio Size</div>
-        <div class="metric-value">{len(st.session_state.portfolio_df)}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ------------------------------
-# ALLOCATION PIE CHART
-# ------------------------------
-st.markdown("---")
-col1, col2 = st.columns([1, 1])
-with col1:
-    st.subheader("Portfolio Allocation by Value")
-    if not st.session_state.portfolio_df.empty:
-        fig = px.pie(st.session_state.portfolio_df, values='Cur Value', names='Stock', title='Current Allocation')
-        fig.update_traces(textposition='inside', textinfo='percent+label')
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No data for pie chart.")
-
-with col2:
-    st.subheader("Performance Sparkline (Last Month)")
-    # Show mini line chart of total portfolio value over last 30 days
-    # We need to fetch historical prices for all holdings and aggregate.
-    # For simplicity, we'll just show a placeholder or compute if possible.
-    st.info("Historical portfolio performance will appear here (requires multi‑stock history).")
-    # You could implement by fetching 1mo daily prices for each stock and computing weighted sum.
-
-# ------------------------------
-# TABS
-# ------------------------------
-tab1, tab2, tab3 = st.tabs(["📊 Holdings & Recommendations", "⚡ Swing Trading Signals", "📈 Charts"])
-
-with tab1:
-    st.subheader("Your Holdings – Long‑Term Analysis")
-    st.caption("BUY = meets all 9 fundamental criteria. HOLD = fails at least one.")
-    st.dataframe(
-        st.session_state.portfolio_df.style.format({
-            'Avg Price': '₹{:.2f}',
-            'LTP (CSV)': '₹{:.2f}',
-            'Current Price': '₹{:.2f}',
-            'Cur Value': '₹{:.2f}',
-            'P&L': '₹{:.2f}',
-            'P&L %': '{:+.2f}%'
-        }, na_rep='-').applymap(
-            lambda x: 'background-color: #d4edda' if x == 'BUY' else ('background-color: #fff3cd' if x == 'HOLD' else ''),
-            subset=['Recommendation']
-        ),
-        use_container_width=True
-    )
-
-with tab2:
-    st.subheader("Daily Swing Trading Opportunities")
-    st.caption("Scanning all stocks in master list. Entry, target, SL based on recent swings.")
-    swing_data = []
-    for name, ticker in ALL_STOCKS.items():
-        df = get_price_data(ticker)
-        sig = swing_signal(df, name)
-        if sig:
-            swing_data.append(sig)
-    if swing_data:
-        swing_df = pd.DataFrame(swing_data)
-        def highlight_buy(row):
-            if row['Signal'] == 'SWING BUY':
-                return ['background-color: #d4edda'] * len(row)
-            return [''] * len(row)
-        st.dataframe(swing_df.style.apply(highlight_buy, axis=1), use_container_width=True)
-    else:
-        st.info("No swing signals today.")
-
-with tab3:
-    st.subheader("Price Chart")
-    if not st.session_state.portfolio_df.empty:
-        selected = st.selectbox("Select stock", st.session_state.portfolio_df['Stock'].tolist())
-        ticker = ALL_STOCKS[selected]
-        df = get_price_data(ticker)
-        if not df.empty:
-            fig = go.Figure(data=[go.Candlestick(
-                x=df.index,
-                open=df['Open'], high=df['High'],
-                low=df['Low'], close=df['Close'],
-                name='Price'
-            )])
-            fig.update_layout(title=f"{selected} – 6 Months", height=450)
-            st.plotly_chart(fig, use_container_width=True)
-
-            close = df['Close'].astype(float)
-            rsi = RSIIndicator(close).rsi()
-            fig2 = px.line(y=rsi, title="RSI (14)")
-            fig2.add_hline(y=70, line_dash="dash", line_color="red")
-            fig2.add_hline(y=30, line_dash="dash", line_color="green")
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.warning("No chart data.")
-    else:
-        st.info("No stocks to display.")
+st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
-st.caption("Data sourced from Yahoo Finance. For educational purposes only. Always do your own research.")
+st.caption("Data sourced from Yahoo Finance. AI model trained on historical patterns – for educational purposes only. Always do your own research.")
