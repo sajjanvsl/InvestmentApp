@@ -5,4 +5,3 @@ plotly
 ta
 scikit-learn
 streamlit
-altair
