@@ -21,65 +21,60 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# CLEAN WHITE BACKGROUND WITH DARK RED HEADER
+# ENHANCED CSS – ATTRACTIVE DASHBOARD
 # ------------------------------
 st.markdown("""
 <style>
     /* Clean white background */
     html, body, [data-testid="stAppViewContainer"] {
-        background: #ffffff !important;
+        background: #f5f7fa !important;
     }
     .stApp {
         background: transparent !important;
     }
     /* Headers with dark red */
     h1, h2, h3, h4, h5, h6 {
-        color: #8B0000 !important;  /* dark red */
-        font-weight: 600;
-    }
-    .main-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 2rem;
-        background: #f8f9fa;
-        padding: 1rem 2rem;
-        border-radius: 40px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    }
-    .logo {
-        font-size: 1.8rem;
+        color: #8B0000 !important;
         font-weight: 700;
-        color: #8B0000 !important;  /* dark red */
+        letter-spacing: -0.02em;
     }
-    /* Metric cards – subtle white cards */
+    /* Table headers */
+    .stDataFrame th {
+        background: #2c3e50 !important;
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 1.1rem !important;
+        padding: 12px !important;
+        text-align: center !important;
+    }
+    .stDataFrame td {
+        font-size: 1rem !important;
+        padding: 10px !important;
+    }
+    /* Metric cards */
     .metric-card {
         background: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 24px;
+        border-radius: 16px;
         padding: 1.5rem;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        color: #333;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+        border: 1px solid #e9ecef;
         transition: all 0.2s ease;
         height: 100%;
     }
     .metric-card:hover {
-        box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+        box-shadow: 0 12px 30px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
     }
     .metric-label {
-        color: #666;
+        color: #6c757d;
         font-size: 0.85rem;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .metric-value {
-        color: #1e3a8a;  /* dark blue */
+        color: #1e3a8a;
         font-size: 2rem;
         font-weight: 700;
-    }
-    .metric-delta {
-        color: #333;
     }
     /* Tags */
     .buy-tag {
@@ -119,104 +114,101 @@ st.markdown("""
         display: inline-block;
         margin-left: 0.5rem;
     }
+    /* Blinking animation for top picks */
+    @keyframes blink {
+        0% { background-color: #fff3cd; border-color: #ffc107; }
+        50% { background-color: #ffe69c; border-color: #ff8c00; }
+        100% { background-color: #fff3cd; border-color: #ffc107; }
+    }
+    .top-pick-row {
+        animation: blink 1.5s infinite;
+        font-weight: 600;
+    }
+    .top-pick-badge {
+        background: #ffc107;
+        color: #000;
+        padding: 0.2rem 1rem;
+        border-radius: 30px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        display: inline-block;
+        margin-bottom: 0.5rem;
+        box-shadow: 0 2px 8px rgba(255,193,7,0.4);
+    }
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
-        background: #f8f9fa;
+        background: white;
         padding: 0.5rem 1.5rem;
         border-radius: 50px;
-        border: 1px solid #e0e0e0;
+        border: 1px solid #dee2e6;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 30px;
         padding: 0.6rem 1.5rem;
         font-weight: 500;
-        color: #333;
+        color: #495057;
     }
     .stTabs [aria-selected="true"] {
         background-color: #8B0000 !important;
         color: white !important;
     }
-    /* DataFrames */
-    .stDataFrame {
-        border-radius: 20px;
-        overflow: hidden;
-        border: 1px solid #e0e0e0;
+    /* Header */
+    .main-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 2rem;
+        background: white;
+        padding: 1rem 2rem;
+        border-radius: 40px;
+        border: 1px solid #dee2e6;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.04);
     }
-    .stDataFrame th {
-        background: #f8f9fa !important;
-        color: #333 !important;
-        font-weight: 600;
-    }
-    .stDataFrame td {
-        color: #333 !important;
-    }
-    /* Dividers */
-    hr {
-        margin: 2rem 0;
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, #ccc, transparent);
+    .logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #8B0000 !important;
     }
     /* Input section */
     .input-section {
-        background: #f8f9fa;
+        background: white;
         padding: 2rem;
         border-radius: 30px;
-        border: 1px solid #e0e0e0;
+        border: 1px solid #dee2e6;
         margin-top: 2rem;
-    }
-    .stTextInput input, .stFileUploader {
-        background: white;
-        border: 1px solid #ccc;
-        border-radius: 30px;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.04);
     }
     /* Priority box */
     .priority-box {
-        background: #f8f9fa;
+        background: white;
         padding: 2rem;
         border-radius: 30px;
         border-left: 6px solid #8B0000;
-        border: 1px solid #e0e0e0;
+        border: 1px solid #dee2e6;
         margin-bottom: 2rem;
-        color: #333;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.04);
     }
-    /* Debug box */
-    .debug-box {
-        background: #f1f3f5;
-        border: 1px dashed #8B0000;
-        padding: 1rem;
-        border-radius: 16px;
-    }
-    /* Info/warning messages */
-    .stAlert {
-        background: #f8f9fa;
-        border: 1px solid #ccc;
-        color: #333;
-        border-radius: 16px;
-    }
-    /* Buttons */
+    /* Button */
     .stButton button {
         background: white;
         border: 1px solid #8B0000;
         color: #8B0000;
         border-radius: 30px;
+        font-weight: 500;
         transition: all 0.2s;
     }
     .stButton button:hover {
         background: #8B0000;
         color: white;
     }
-    /* Delete button (small trash can) */
-    .delete-btn {
-        background: #f8d7da;
-        border: 1px solid #f5c6cb;
-        color: #721c24;
-        border-radius: 20px;
-        padding: 0.2rem 0.8rem;
-    }
-    .delete-btn:hover {
-        background: #f5c6cb;
+    /* Divider */
+    hr {
+        margin: 2rem 0;
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, #adb5bd, transparent);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -261,11 +253,10 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING WITH BETTER ERROR HANDLING
+# DATA FETCHING
 # ------------------------------
-@st.cache_data(ttl=1800)  # 30 minutes
+@st.cache_data(ttl=1800)
 def get_price_data(ticker):
-    """Fetch price data with retry logic."""
     max_retries = 2
     for attempt in range(max_retries):
         try:
@@ -276,10 +267,10 @@ def get_price_data(ticker):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             return df
-        except Exception as e:
+        except Exception:
             if attempt == max_retries - 1:
                 return pd.DataFrame()
-            time.sleep(1)  # wait before retry
+            time.sleep(1)
     return pd.DataFrame()
 
 # ------------------------------
@@ -329,7 +320,7 @@ def save_sold(df):
             os.remove(SOLD_FILE)
 
 # ------------------------------
-# IMPROVED FUNDAMENTAL FETCHING (3‑year averages)
+# FUNDAMENTAL FETCHING
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -341,7 +332,6 @@ def safe_get_series(df, key):
     return pd.Series(dtype=float)
 
 def cagr(series, years=3):
-    """CAGR over the last `years` (requires at least 2 points)."""
     if len(series) < 2:
         return np.nan
     idx = min(years, len(series)-1)
@@ -409,9 +399,23 @@ def get_fundamental_data(ticker):
         if not pd.isna(promoter):
             promoter = promoter * 100
 
+        # Magic Formula components – with fallbacks
+        # ROC: use avg_roce if available, else returnOnEquity from info
+        roc = avg_roce if not pd.isna(avg_roce) else info.get('returnOnEquity', np.nan)
+        if not pd.isna(roc):
+            roc = roc * 100 if roc < 1 else roc  # adjust if decimal
+
+        # EY: use ebit/ev or fallback to trailing PE inverse
         cash = info.get('totalCash', 0)
         ev = market_cap * 1e7 + (total_debt if not pd.isna(total_debt) else 0) - cash
-        ey = (ebit_latest / ev) * 100 if ev and ev != 0 else np.nan
+        ey = (ebit_latest / ev) * 100 if ev and ev != 0 and not pd.isna(ebit_latest) else np.nan
+        if pd.isna(ey):
+            # Fallback: trailing PE inverse
+            pe = info.get('trailingPE', np.nan)
+            if not pd.isna(pe) and pe > 0:
+                ey = (1 / pe) * 100
+            else:
+                ey = np.nan
 
         return {
             'sales_growth': sales_growth,
@@ -425,15 +429,13 @@ def get_fundamental_data(ticker):
             'promoter': promoter,
             'current_price': current_price,
             'info': info,
-            'ebit': ebit_latest,
-            'ev': ev,
+            'roc': roc,
             'ey': ey
         }
     except Exception:
         return None
 
 def screen_stock(fund):
-    """Return recommendation based on number of criteria met."""
     if fund is None:
         return "SELL", {}, 0, {}
     criteria = {
@@ -459,7 +461,6 @@ def screen_stock(fund):
         'Avg FCF (Cr)': fund['avg_fcf'],
         'Promoter': fund['promoter']
     }
-    # Recommendation logic
     if criteria_met >= 9:
         rec = "BUY"
     elif criteria_met >= 4:
@@ -469,7 +470,7 @@ def screen_stock(fund):
     return rec, criteria, criteria_met, values
 
 # ------------------------------
-# AI SWING SCANNER (unchanged)
+# AI SWING SCANNER
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -556,7 +557,7 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# INTRADAY PICKS (scans all stocks)
+# INTRADAY PICKS
 # ------------------------------
 def intraday_picks():
     picks = []
@@ -617,15 +618,14 @@ if st.button("🔄 Refresh Data (clear cache)"):
     st.rerun()
 
 # ------------------------------
-# SWING TRADING SECTION (scans all stocks)
+# SWING TRADING SECTION
 # ------------------------------
 st.markdown("## 🤖 AI Swing Trading Scanner")
-st.caption("Scanning all stocks daily. Signals combine technical rules with RandomForest AI. Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days.")
+st.caption("Scanning all stocks daily. Signals combine technical rules with RandomForest AI. Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days. **Top pick blinks!**")
 
 with st.spinner("Fetching swing signals..."):
     swing_data = []
     today = datetime.now().date()
-    processed = 0
     total = len(ALL_STOCKS)
     progress_bar = st.progress(0, text="Scanning stocks...")
     for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
@@ -639,39 +639,48 @@ with st.spinner("Fetching swing signals..."):
             else:
                 sig['Fresh'] = ''
             swing_data.append(sig)
-        processed += 1
         progress_bar.progress((idx+1)/total, text=f"Scanned {idx+1}/{total} stocks")
     progress_bar.empty()
 
 if swing_data:
     swing_df = pd.DataFrame(swing_data)
-    def highlight_fresh(row):
-        if row['Fresh'] == '✅ Fresh':
+    # Apply blinking class to first row (top pick)
+    def highlight_rows(row):
+        if row.name == 0:  # first row
+            return ['top-pick-row'] * len(row)
+        elif row['Fresh'] == '✅ Fresh':
             return ['background-color: #cffafe'] * len(row)
         elif row['Signal'] == 'SWING BUY':
             return ['background-color: #d4edda'] * len(row)
         return [''] * len(row)
-    st.dataframe(swing_df.style.apply(highlight_fresh, axis=1), use_container_width=True)
+    
+    st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
+    st.dataframe(swing_df.style.apply(highlight_rows, axis=1), use_container_width=True)
 else:
-    st.warning("No swing buy signals found. This could be due to market hours, data availability, or API limits. Try the refresh button above.")
+    st.warning("No swing buy signals found. Try the refresh button above.")
 
 # ------------------------------
-# INTRADAY PICKS SECTION (scans all stocks)
+# INTRADAY PICKS SECTION
 # ------------------------------
 st.markdown("## ⚡ Intraday Stock Picks")
-st.caption("Stocks with volume surge >1.2x OR price above 20MA. Targets: +2%, Stop: -2%.")
+st.caption("Stocks with volume surge >1.2x OR price above 20MA. Targets: +2%, Stop: -2%. **Top pick blinks!**")
 with st.spinner("Scanning for intraday opportunities..."):
     intraday = intraday_picks()
 if intraday:
     intraday_df = pd.DataFrame(intraday)
-    st.dataframe(intraday_df, use_container_width=True)
+    def highlight_intraday(row):
+        if row.name == 0:
+            return ['top-pick-row'] * len(row)
+        return [''] * len(row)
+    st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY PICK</span>', unsafe_allow_html=True)
+    st.dataframe(intraday_df.style.apply(highlight_intraday, axis=1), use_container_width=True)
 else:
     st.info("No intraday picks at this moment. (Market may be closed or no stocks meet criteria.)")
 
 st.markdown("---")
 
 # ------------------------------
-# HOLDINGS PROCESSING (with BUY/HOLD/SELL based on criteria count)
+# HOLDINGS PROCESSING
 # ------------------------------
 if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
     if st.session_state.portfolio_df is None:
@@ -734,7 +743,7 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
         st.session_state.sell_count = sell_count
         st.session_state.debug_df = pd.DataFrame(debug_data)
 
-    # Priority Ranking (simplified)
+    # Priority Ranking
     st.markdown("## 📊 Buy / Hold / Sell Priority Ranking")
     st.markdown("Based on your formula (growth + quality + undervaluation). Ranked by criteria fit.")
 
@@ -824,7 +833,7 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
         for idx, row in st.session_state.portfolio_df.iterrows():
             col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5,1,1,1,1,1,1,0.8])
             with col1:
-                st.write(row['Stock'])
+                st.write(f"**{row['Stock']}**")
             with col2:
                 st.write(f"{row['Qty']:.0f}")
             with col3:
@@ -836,7 +845,6 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
             with col6:
                 st.write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
             with col7:
-                # Show recommendation tag
                 if row['Recommendation'] == 'BUY':
                     st.markdown('<span class="buy-tag">BUY</span>', unsafe_allow_html=True)
                 elif row['Recommendation'] == 'HOLD':
@@ -883,12 +891,16 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
 
     with tab3:
         st.subheader("Magic Formula Ranking")
-        st.caption("Ranked by Return on Capital (ROC) and Earnings Yield (EY).")
+        st.caption("Ranked by Return on Capital (ROC) and Earnings Yield (EY). Lower combined rank is better.")
         magic_data = []
         for name, ticker in ALL_STOCKS.items():
             fund = get_fundamental_data(ticker)
-            if fund and not pd.isna(fund['roce']) and not pd.isna(fund['ey']):
-                magic_data.append({'Stock': name, 'ROC (%)': round(fund['roce'], 2), 'EY (%)': round(fund['ey'], 2)})
+            if fund and not pd.isna(fund.get('roc')) and not pd.isna(fund.get('ey')):
+                magic_data.append({
+                    'Stock': name,
+                    'ROC (%)': round(fund['roc'], 2),
+                    'EY (%)': round(fund['ey'], 2)
+                })
         if magic_data:
             magic_df = pd.DataFrame(magic_data)
             magic_df['ROC Rank'] = magic_df['ROC (%)'].rank(ascending=False)
@@ -898,7 +910,7 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
             magic_df['Magic Rank'] = magic_df.index + 1
             st.dataframe(magic_df[['Magic Rank', 'Stock', 'ROC (%)', 'EY (%)']], use_container_width=True)
         else:
-            st.info("Insufficient data for Magic Formula.")
+            st.info("Insufficient data for Magic Formula. This may be due to missing financials; try again later or add more stocks.")
 
 else:
     st.info("No holdings data. Please add stocks using the section below.")
@@ -973,4 +985,4 @@ if single_stock:
 st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
-st.caption("Data sourced from Yahoo Finance. Recommendations based on your 9‑factor formula.")
+st.caption("Data sourced from Yahoo Finance. Recommendations based on your 9‑factor formula. Top picks blink for visibility.")
