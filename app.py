@@ -21,42 +21,54 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# CUSTOM CSS (unchanged)
+# ELEGANT CSS WITH BLUE BACKGROUND
 # ------------------------------
 st.markdown("""
 <style>
-    .stApp { background-color: #f0f2f6; }
-    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 600; color: #0f172a; }
+    /* Main background: light blue */
+    .stApp {
+        background: linear-gradient(135deg, #e6f0ff 0%, #d4e4ff 100%);
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+    }
+    /* Headers */
+    h1, h2, h3 {
+        font-weight: 600;
+        color: #0a2540;
+    }
+    /* Metric cards */
     .metric-card {
-        background: white;
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
         padding: 1.5rem;
-        border-radius: 20px;
-        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
-        border: 1px solid #e9eef2;
+        border-radius: 24px;
+        box-shadow: 0 10px 30px rgba(0,20,50,0.1);
+        border: 1px solid rgba(255,255,255,0.5);
         transition: all 0.2s;
         height: 100%;
     }
     .metric-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 20px 30px -10px rgba(0,0,0,0.15);
+        transform: translateY(-5px);
+        box-shadow: 0 20px 40px rgba(0,30,70,0.15);
     }
     .metric-label {
         font-size: 0.85rem;
-        color: #64748b;
+        color: #2c3e50;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
+        opacity: 0.7;
     }
     .metric-value {
         font-size: 2rem;
         font-weight: 700;
-        color: #0f172a;
+        color: #0a2540;
         line-height: 1.2;
     }
     .metric-delta {
         font-size: 0.9rem;
         font-weight: 500;
     }
+    /* Tags */
     .buy-tag {
         background: #dcfce7;
         color: #166534;
@@ -76,75 +88,90 @@ st.markdown("""
         display: inline-block;
         margin-left: 0.5rem;
     }
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
-        background-color: white;
+        background: rgba(255,255,255,0.6);
+        backdrop-filter: blur(8px);
         padding: 0.5rem 1.5rem;
         border-radius: 50px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 30px;
         padding: 0.6rem 1.5rem;
         font-weight: 500;
+        color: #0a2540;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #1e293b;
+        background-color: #1e3a8a;
         color: white !important;
     }
+    /* DataFrames */
     .stDataFrame {
-        border-radius: 16px;
-        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        border: none;
         overflow: hidden;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        box-shadow: 0 8px 20px rgba(0,20,50,0.1);
     }
+    /* Dividers */
     hr {
         margin: 2rem 0;
         border: none;
         height: 1px;
-        background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
+        background: linear-gradient(90deg, transparent, #3b82f6, transparent);
     }
+    /* Header */
     .main-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         margin-bottom: 2rem;
+        background: rgba(255,255,255,0.3);
+        backdrop-filter: blur(8px);
+        padding: 1rem 2rem;
+        border-radius: 40px;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.05);
     }
     .logo {
         font-size: 1.8rem;
         font-weight: 700;
-        background: linear-gradient(135deg, #1e293b, #0f172a);
+        background: linear-gradient(135deg, #1e3a8a, #3b82f6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
+    /* Input section */
     .input-section {
-        background: white;
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(10px);
         padding: 2rem;
-        border-radius: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border-radius: 30px;
+        box-shadow: 0 8px 25px rgba(0,30,70,0.1);
         margin-top: 2rem;
+        border: 1px solid rgba(255,255,255,0.6);
     }
+    /* Priority box */
     .priority-box {
-        background: white;
+        background: rgba(255,255,255,0.8);
+        backdrop-filter: blur(10px);
         padding: 2rem;
-        border-radius: 20px;
-        border-left: 5px solid #1e293b;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border-radius: 30px;
+        border-left: 6px solid #1e3a8a;
+        box-shadow: 0 10px 30px rgba(0,20,50,0.1);
         margin-bottom: 2rem;
     }
+    /* Debug box */
     .debug-box {
-        background: #f1f5f9;
+        background: rgba(0,0,0,0.03);
         padding: 1rem;
-        border-radius: 10px;
-        font-family: monospace;
-        font-size: 0.8rem;
-        margin-top: 1rem;
+        border-radius: 16px;
+        border: 1px dashed #3b82f6;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# MASTER STOCK LIST (all NSE stocks)
+# MASTER STOCK LIST
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -183,7 +210,23 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA PERSISTENCE (JSON)
+# DATA FETCHING FUNCTIONS
+# ------------------------------
+@st.cache_data(ttl=3600)
+def get_price_data(ticker):
+    try:
+        df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
+        if df.empty:
+            return pd.DataFrame()
+        df.dropna(inplace=True)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+# ------------------------------
+# DATA PERSISTENCE
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
@@ -244,8 +287,6 @@ def cagr(series, years=3):
     """CAGR over the last `years` (requires at least 2 points)."""
     if len(series) < 2:
         return np.nan
-    # Series is from latest to oldest (index 0 = most recent)
-    # Take the value ~years ago if available, else the oldest.
     idx = min(years, len(series)-1)
     latest = series.iloc[0]
     past = series.iloc[idx]
@@ -254,7 +295,6 @@ def cagr(series, years=3):
     return ((latest / past) ** (1/idx) - 1) * 100
 
 def mean_series(series, years=3):
-    """Average over the last `years` (or all if less)."""
     if len(series) == 0:
         return np.nan
     recent = series.iloc[:min(years, len(series))]
@@ -269,18 +309,14 @@ def get_fundamental_data(ticker):
         balance_sheet = t.balance_sheet
         cashflow = t.cashflow
 
-        # Revenue growth (3‑year CAGR)
         revenue = safe_get_series(financials, 'Total Revenue')
         sales_growth = cagr(revenue, years=3)
 
-        # Profit growth (3‑year CAGR)
         profit = safe_get_series(financials, 'Net Income')
         profit_growth = cagr(profit, years=3)
 
-        # Market Cap (in Crores)
         market_cap = info.get('marketCap', 0) / 1e7
 
-        # ROCE (average over 3 years)
         ebit_series = safe_get_series(financials, 'EBIT')
         ta_series = safe_get_series(balance_sheet, 'Total Assets')
         cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
@@ -294,7 +330,6 @@ def get_fundamental_data(ticker):
                 roce_values.append((ebit / capital) * 100)
         avg_roce = np.mean(roce_values) if roce_values else np.nan
 
-        # Debt to Equity (latest)
         total_debt = safe_get_series(balance_sheet, 'Total Debt')
         if len(total_debt) > 0:
             total_debt = total_debt.iloc[0]
@@ -306,29 +341,23 @@ def get_fundamental_data(ticker):
         equity = equity.iloc[0] if len(equity) > 0 else np.nan
         de_ratio = total_debt / equity if equity and equity != 0 else np.nan
 
-        # Interest Coverage Ratio (latest)
         ebit_latest = ebit_series.iloc[0] if len(ebit_series) > 0 else np.nan
         interest = safe_get_series(financials, 'Interest Expense')
         interest = interest.iloc[0] if len(interest) > 0 else np.nan
         icr = ebit_latest / interest if interest and interest != 0 else np.nan
 
-        # Down from 52W high
         current_price = info.get('regularMarketPrice', info.get('currentPrice', np.nan))
         high_52w = info.get('fiftyTwoWeekHigh', np.nan)
         down_from_high = ((high_52w - current_price) / high_52w) * 100 if high_52w and current_price else np.nan
 
-        # Free Cash Flow – average of last 3 years > 1 (in Crores)
         fcf_series = safe_get_series(cashflow, 'Free Cash Flow')
-        # Convert to Crores (1e7)
         fcf_cr = fcf_series / 1e7
         avg_fcf = fcf_cr.iloc[:3].mean() if len(fcf_cr) > 0 else np.nan
 
-        # Promoter holding – from 'heldPercentInsiders' (convert to %)
         promoter = info.get('heldPercentInsiders', np.nan)
         if not pd.isna(promoter):
             promoter = promoter * 100
 
-        # Magic Formula components
         cash = info.get('totalCash', 0)
         ev = market_cap * 1e7 + (total_debt if not pd.isna(total_debt) else 0) - cash
         ey = (ebit_latest / ev) * 100 if ev and ev != 0 else np.nan
@@ -341,7 +370,7 @@ def get_fundamental_data(ticker):
             'de_ratio': de_ratio,
             'icr': icr,
             'down_from_high': down_from_high,
-            'avg_fcf': avg_fcf,          # average FCF in Crores
+            'avg_fcf': avg_fcf,
             'promoter': promoter,
             'current_price': current_price,
             'info': info,
@@ -385,7 +414,7 @@ def screen_stock(fund):
     return rec, criteria, criteria_met, values
 
 # ------------------------------
-# AI SWING SCANNER (unchanged)
+# AI SWING SCANNER
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -472,7 +501,7 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# INTRADAY PICKS (more inclusive)
+# INTRADAY PICKS
 # ------------------------------
 def intraday_picks():
     picks = []
@@ -487,11 +516,10 @@ def intraday_picks():
             continue
         vol_ratio = volume.iloc[-1] / avg_vol
         ma20 = close.rolling(20).mean().iloc[-1]
-        # Condition: volume surge > 1.2x OR price > 20MA
         if vol_ratio > 1.2 or close.iloc[-1] > ma20:
             entry = close.iloc[-1]
-            target = entry * 1.02  # 2% target
-            stop = entry * 0.98     # 2% stop
+            target = entry * 1.02
+            stop = entry * 0.98
             picks.append({
                 'Stock': name,
                 'Entry': round(entry, 2),
@@ -503,7 +531,7 @@ def intraday_picks():
     return picks
 
 # ------------------------------
-# SESSION STATE (load persisted data)
+# SESSION STATE
 # ------------------------------
 if 'holdings_df' not in st.session_state:
     st.session_state.holdings_df = load_holdings()
@@ -523,7 +551,7 @@ if 'sold_history' not in st.session_state:
 # ------------------------------
 # HEADER
 # ------------------------------
-st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#64748b;">Debug Edition</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#1e3a8a;">Debug Edition</span></div>', unsafe_allow_html=True)
 st.markdown("#### Institutional‑grade analytics with AI swing scanner, Magic Formula, and intraday picks")
 
 # ------------------------------
@@ -553,303 +581,4 @@ if swing_data:
             return ['background-color: #cffafe'] * len(row)
         elif row['Signal'] == 'SWING BUY':
             return ['background-color: #d4edda'] * len(row)
-        return [''] * len(row)
-    st.dataframe(swing_df.style.apply(highlight_fresh, axis=1), use_container_width=True)
-else:
-    st.info("No swing buy signals today.")
-
-# ------------------------------
-# INTRADAY PICKS SECTION
-# ------------------------------
-st.markdown("## ⚡ Intraday Stock Picks")
-st.caption("Stocks with volume surge >1.2x OR price above 20MA. Targets: +2%, Stop: -2%.")
-intraday = intraday_picks()
-if intraday:
-    intraday_df = pd.DataFrame(intraday)
-    st.dataframe(intraday_df, use_container_width=True)
-else:
-    st.info("No intraday picks at this moment. (Market may be closed or no stocks meet criteria.)")
-
-st.markdown("---")
-
-# ------------------------------
-# HOLDINGS PROCESSING (with debug)
-# ------------------------------
-if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
-    if st.session_state.portfolio_df is None:
-        portfolio_data = []
-        debug_data = []   # collect detailed values for debugging
-        total_value = 0
-        total_cost = 0
-        buy_count = 0
-        progress_bar = st.progress(0, text="Analyzing holdings...")
-        for idx, row in st.session_state.holdings_df.iterrows():
-            name = row['Instrument']
-            ticker = ALL_STOCKS.get(name)
-            price_df = get_price_data(ticker)
-            if price_df.empty:
-                continue
-            current_price = price_df['Close'].iloc[-1]
-            cur_value = row['Qty'] * current_price
-            if not pd.isna(row['Avg Price']):
-                pnl = row['Qty'] * (current_price - row['Avg Price'])
-                pnl_pct = (current_price - row['Avg Price']) / row['Avg Price'] * 100
-            else:
-                pnl = np.nan
-                pnl_pct = np.nan
-            fund = get_fundamental_data(ticker)
-            rec, criteria, criteria_met, values = screen_stock(fund)
-            if rec == "BUY":
-                buy_count += 1
-            portfolio_data.append({
-                'Stock': name,
-                'Qty': row['Qty'],
-                'Avg Price': row['Avg Price'],
-                'LTP (CSV)': row['LTP'],
-                'Current Price': current_price,
-                'Cur Value': cur_value,
-                'P&L': pnl,
-                'P&L %': pnl_pct,
-                'Recommendation': rec,
-                'Criteria Met': criteria_met,
-            })
-            # Store debug info
-            debug_data.append({
-                'Stock': name,
-                **values
-            })
-            total_value += cur_value
-            if not pd.isna(row['Avg Price']):
-                total_cost += row['Qty'] * row['Avg Price']
-            progress_bar.progress((idx+1)/len(st.session_state.holdings_df))
-        progress_bar.empty()
-        st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
-        st.session_state.total_value = total_value
-        st.session_state.total_cost = total_cost
-        st.session_state.buy_count = buy_count
-        st.session_state.debug_df = pd.DataFrame(debug_data)  # save for later
-
-    # ------------------------------
-    # PRIORITY RANKING (unchanged)
-    # ------------------------------
-    st.markdown("## 📊 Buy / Hold / Sell Priority Ranking")
-    st.markdown("Based on your formula (growth + quality + undervaluation). Ranked by criteria fit and future potential.")
-
-    exclude_patterns = ['MON', 'BEES', 'GOLD', 'SILVER', 'LIQUID', 'SMALL', 'TMCV', 'TMPV']
-    stock_rank = []
-    for _, row in st.session_state.portfolio_df.iterrows():
-        name = row['Stock']
-        if any(pattern in name for pattern in exclude_patterns):
-            continue
-        # We need criteria met again – it's in portfolio_df
-        stock_rank.append({
-            'Stock': name,
-            'Criteria Met': row['Criteria Met']
-        })
-    stock_rank.sort(key=lambda x: x['Criteria Met'], reverse=True)
-    # ... (rest of ranking generation) ...
-
-    # ------------------------------
-    # DEBUG EXPANDER – show fundamental values
-    # ------------------------------
-    with st.expander("🔍 Debug: Fundamental Values for Your Holdings"):
-        st.write("These are the actual computed values for each stock. Compare with the 9 criteria to see why a stock is not a BUY.")
-        if 'debug_df' in st.session_state and not st.session_state.debug_df.empty:
-            st.dataframe(st.session_state.debug_df.style.format({
-                'Sales growth': '{:.2f}%',
-                'Profit growth': '{:.2f}%',
-                'Market Cap': '₹{:.2f} Cr',
-                'ROCE': '{:.2f}%',
-                'D/E': '{:.2f}',
-                'ICR': '{:.2f}',
-                'Down from high': '{:.2f}%',
-                'Avg FCF (Cr)': '₹{:.2f} Cr',
-                'Promoter': '{:.2f}%'
-            }, na_rep='-'), use_container_width=True)
-        else:
-            st.info("No debug data available.")
-
-    # ------------------------------
-    # METRICS CARDS (unchanged)
-    # ------------------------------
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Portfolio Value", f"₹{st.session_state.total_value:,.0f}")
-    with col2:
-        if st.session_state.total_cost > 0:
-            total_pnl = st.session_state.total_value - st.session_state.total_cost
-            total_pnl_pct = (total_pnl / st.session_state.total_cost) * 100
-            st.metric("Total P&L", f"₹{total_pnl:+,.0f}", delta=f"{total_pnl_pct:+.2f}%")
-        else:
-            st.metric("Total P&L", "N/A")
-    with col3:
-        st.metric("Stocks Meeting All Criteria", st.session_state.buy_count)
-    with col4:
-        st.metric("Portfolio Size", len(st.session_state.portfolio_df))
-
-    # Allocation pie
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.subheader("Portfolio Allocation by Value")
-        if not st.session_state.portfolio_df.empty:
-            fig = px.pie(st.session_state.portfolio_df, values='Cur Value', names='Stock')
-            st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        st.subheader("Performance Sparkline")
-        st.info("Coming soon")
-
-    st.markdown("---")
-
-    # TABS
-    tab1, tab2, tab3 = st.tabs(["📊 Holdings & Recommendations", "📈 Charts", "🧙 Magic Formula"])
-
-    with tab1:
-        st.subheader("Your Holdings – Long‑Term Analysis")
-        st.caption("BUY = meets all 9 fundamental criteria. HOLD = fails at least one. Click Delete to sell stock.")
-
-        # Display holdings with delete button (simplified)
-        for idx, row in st.session_state.portfolio_df.iterrows():
-            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5,1,1,1,1,1,1,0.8])
-            with col1:
-                st.write(row['Stock'])
-            with col2:
-                st.write(f"{row['Qty']:.0f}")
-            with col3:
-                st.write(f"₹{row['Avg Price']:.2f}" if not pd.isna(row['Avg Price']) else '-')
-            with col4:
-                st.write(f"₹{row['Current Price']:.2f}")
-            with col5:
-                st.write(f"₹{row['Cur Value']:.2f}")
-            with col6:
-                st.write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
-            with col7:
-                st.write(f"{row['Criteria Met']}/9")
-            with col8:
-                if st.button("🗑️", key=f"del_{idx}"):
-                    sold_entry = {
-                        'Stock': row['Stock'],
-                        'Qty': row['Qty'],
-                        'Avg Price': row['Avg Price'],
-                        'Sell Price': row['Current Price'],
-                        'Sell Date': today.strftime('%Y-%m-%d'),
-                        'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
-                    }
-                    st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
-                    save_sold(st.session_state.sold_history)
-                    st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != row['Stock']].reset_index(drop=True)
-                    save_holdings(st.session_state.holdings_df)
-                    st.session_state.portfolio_df = None
-                    st.rerun()
-
-        st.markdown("#### Sold History")
-        if not st.session_state.sold_history.empty:
-            st.dataframe(st.session_state.sold_history, use_container_width=True)
-        else:
-            st.info("No sold stocks yet.")
-
-    with tab2:
-        st.subheader("Price Chart")
-        if not st.session_state.portfolio_df.empty:
-            selected = st.selectbox("Select stock", st.session_state.portfolio_df['Stock'].tolist())
-            ticker = ALL_STOCKS[selected]
-            df = get_price_data(ticker)
-            if not df.empty:
-                fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-                fig.update_layout(height=450)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No chart data.")
-
-    with tab3:
-        st.subheader("Magic Formula Ranking")
-        st.caption("Ranked by Return on Capital (ROC) and Earnings Yield (EY).")
-        magic_data = []
-        for name, ticker in ALL_STOCKS.items():
-            fund = get_fundamental_data(ticker)
-            if fund and not pd.isna(fund['roce']) and not pd.isna(fund['ey']):
-                magic_data.append({'Stock': name, 'ROC (%)': round(fund['roce'], 2), 'EY (%)': round(fund['ey'], 2)})
-        if magic_data:
-            magic_df = pd.DataFrame(magic_data)
-            magic_df['ROC Rank'] = magic_df['ROC (%)'].rank(ascending=False)
-            magic_df['EY Rank'] = magic_df['EY (%)'].rank(ascending=False)
-            magic_df['Combined'] = magic_df['ROC Rank'] + magic_df['EY Rank']
-            magic_df = magic_df.sort_values('Combined').reset_index(drop=True)
-            magic_df['Magic Rank'] = magic_df.index + 1
-            st.dataframe(magic_df[['Magic Rank', 'Stock', 'ROC (%)', 'EY (%)']], use_container_width=True)
-        else:
-            st.info("Insufficient data for Magic Formula.")
-
-else:
-    st.info("No holdings data. Please add stocks using the section below.")
-
-# ------------------------------
-# INPUT SECTION AT BOTTOM
-# ------------------------------
-st.markdown('<div class="input-section">', unsafe_allow_html=True)
-st.subheader("📁 Add Holdings")
-col1, col2 = st.columns([2, 1])
-with col1:
-    uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
-with col2:
-    single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA").strip().upper()
-
-if uploaded_file is not None:
-    try:
-        raw_df = pd.read_csv(uploaded_file, skipinitialspace=True, engine='python')
-        raw_df = raw_df.loc[:, ~raw_df.columns.str.contains('^Unnamed')]
-        if raw_df.shape[1] < 8:
-            st.error(f"CSV has only {raw_df.shape[1]} columns. Expected at least 8.")
-        else:
-            df_hold = raw_df.iloc[:, :8].copy()
-            df_hold.columns = ['Instrument', 'Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']
-            df_hold['Instrument'] = df_hold['Instrument'].astype(str).str.strip().str.upper()
-            df_hold = df_hold[df_hold['Instrument'].notna() & (df_hold['Instrument'] != '') & (df_hold['Instrument'] != 'NAN')]
-            for col in ['Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']:
-                df_hold[col] = pd.to_numeric(df_hold[col], errors='coerce')
-            original_len = len(df_hold)
-            df_hold = df_hold[df_hold['Instrument'].isin(ALL_STOCKS.keys())]
-            if len(df_hold) == 0:
-                st.error("No stocks from your CSV are in the master list.")
-            else:
-                st.session_state.holdings_df = df_hold
-                save_holdings(df_hold)
-                st.session_state.portfolio_df = None
-                st.success(f"Loaded {len(df_hold)} stocks from CSV.")
-                st.rerun()
-    except Exception as e:
-        st.error(f"Error reading CSV: {e}")
-
-if single_stock:
-    if single_stock in ALL_STOCKS:
-        new_row = pd.DataFrame({
-            'Instrument': [single_stock],
-            'Qty': [1],
-            'Avg Price': [np.nan],
-            'LTP': [np.nan],
-            'Cur Value': [np.nan],
-            'P&L': [np.nan],
-            'Net Chg %': [np.nan],
-            'Day Chg %': [np.nan]
-        })
-        if st.session_state.holdings_df is not None:
-            if single_stock not in st.session_state.holdings_df['Instrument'].values:
-                st.session_state.holdings_df = pd.concat([st.session_state.holdings_df, new_row], ignore_index=True)
-                save_holdings(st.session_state.holdings_df)
-                st.session_state.portfolio_df = None
-                st.success(f"Added {single_stock}.")
-                st.rerun()
-            else:
-                st.warning(f"{single_stock} already in holdings.")
-        else:
-            st.session_state.holdings_df = new_row
-            save_holdings(st.session_state.holdings_df)
-            st.session_state.portfolio_df = None
-            st.success(f"Added {single_stock}.")
-            st.rerun()
-    else:
-        st.error(f"{single_stock} not found in master list.")
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("---")
-st.caption("Data sourced from Yahoo Finance. Debug mode enabled – use expander to see fundamental values.")
+        return [''] * len
