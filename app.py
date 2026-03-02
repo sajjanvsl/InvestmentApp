@@ -8,6 +8,7 @@ from ta.momentum import RSIIndicator
 from datetime import datetime, timedelta
 import json
 import os
+import time
 
 # Attempt to import sklearn – fallback if not available
 try:
@@ -16,7 +17,6 @@ try:
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
-    st.warning("scikit‑learn not installed – AI swing scanner disabled, using rule‑based only.")
 
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
@@ -25,17 +25,11 @@ st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 # ------------------------------
 st.markdown("""
 <style>
-    /* Main background: light blue */
     .stApp {
         background: linear-gradient(135deg, #e6f0ff 0%, #d4e4ff 100%);
         font-family: 'Inter', 'Segoe UI', sans-serif;
     }
-    /* Headers */
-    h1, h2, h3 {
-        font-weight: 600;
-        color: #0a2540;
-    }
-    /* Metric cards */
+    h1, h2, h3 { font-weight: 600; color: #0a2540; }
     .metric-card {
         background: rgba(255, 255, 255, 0.9);
         backdrop-filter: blur(10px);
@@ -64,11 +58,6 @@ st.markdown("""
         color: #0a2540;
         line-height: 1.2;
     }
-    .metric-delta {
-        font-size: 0.9rem;
-        font-weight: 500;
-    }
-    /* Tags */
     .buy-tag {
         background: #dcfce7;
         color: #166534;
@@ -88,7 +77,6 @@ st.markdown("""
         display: inline-block;
         margin-left: 0.5rem;
     }
-    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
         background: rgba(255,255,255,0.6);
@@ -107,21 +95,18 @@ st.markdown("""
         background-color: #1e3a8a;
         color: white !important;
     }
-    /* DataFrames */
     .stDataFrame {
         border-radius: 20px;
         border: none;
         overflow: hidden;
         box-shadow: 0 8px 20px rgba(0,20,50,0.1);
     }
-    /* Dividers */
     hr {
         margin: 2rem 0;
         border: none;
         height: 1px;
         background: linear-gradient(90deg, transparent, #3b82f6, transparent);
     }
-    /* Header */
     .main-header {
         display: flex;
         align-items: center;
@@ -140,7 +125,6 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
-    /* Input section */
     .input-section {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(10px);
@@ -150,7 +134,6 @@ st.markdown("""
         margin-top: 2rem;
         border: 1px solid rgba(255,255,255,0.6);
     }
-    /* Priority box */
     .priority-box {
         background: rgba(255,255,255,0.8);
         backdrop-filter: blur(10px);
@@ -160,18 +143,20 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,20,50,0.1);
         margin-bottom: 2rem;
     }
-    /* Debug box */
     .debug-box {
         background: rgba(0,0,0,0.03);
         padding: 1rem;
         border-radius: 16px;
         border: 1px dashed #3b82f6;
     }
+    .stAlert {
+        border-radius: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# MASTER STOCK LIST
+# MASTER STOCK LIST (all NSE stocks)
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -210,23 +195,29 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING FUNCTIONS
+# DATA FETCHING WITH BETTER ERROR HANDLING
 # ------------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)  # 30 minutes
 def get_price_data(ticker):
-    try:
-        df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
-        if df.empty:
-            return pd.DataFrame()
-        df.dropna(inplace=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        return df
-    except Exception:
-        return pd.DataFrame()
+    """Fetch price data with retry logic."""
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
+            if df.empty:
+                return pd.DataFrame()
+            df.dropna(inplace=True)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            return df
+        except Exception as e:
+            if attempt == max_retries - 1:
+                return pd.DataFrame()
+            time.sleep(1)  # wait before retry
+    return pd.DataFrame()
 
 # ------------------------------
-# DATA PERSISTENCE
+# DATA PERSISTENCE (unchanged)
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
@@ -272,7 +263,7 @@ def save_sold(df):
             os.remove(SOLD_FILE)
 
 # ------------------------------
-# IMPROVED FUNDAMENTAL FETCHING (3‑year averages)
+# IMPROVED FUNDAMENTAL FETCHING (unchanged)
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -284,7 +275,6 @@ def safe_get_series(df, key):
     return pd.Series(dtype=float)
 
 def cagr(series, years=3):
-    """CAGR over the last `years` (requires at least 2 points)."""
     if len(series) < 2:
         return np.nan
     idx = min(years, len(series)-1)
@@ -293,12 +283,6 @@ def cagr(series, years=3):
     if past == 0 or np.isnan(past):
         return np.nan
     return ((latest / past) ** (1/idx) - 1) * 100
-
-def mean_series(series, years=3):
-    if len(series) == 0:
-        return np.nan
-    recent = series.iloc[:min(years, len(series))]
-    return recent.mean()
 
 @st.cache_data(ttl=86400)
 def get_fundamental_data(ticker):
@@ -414,7 +398,7 @@ def screen_stock(fund):
     return rec, criteria, criteria_met, values
 
 # ------------------------------
-# AI SWING SCANNER
+# AI SWING SCANNER (unchanged)
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -501,7 +485,7 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# INTRADAY PICKS
+# INTRADAY PICKS (unchanged)
 # ------------------------------
 def intraday_picks():
     picks = []
@@ -555,30 +539,36 @@ st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager
 st.markdown("#### Institutional‑grade analytics with AI swing scanner, Magic Formula, and intraday picks")
 
 # ------------------------------
-# SWING TRADING SECTION
+# MANUAL REFRESH BUTTON
+# ------------------------------
+if st.button("🔄 Refresh Data (clear cache)"):
+    st.cache_data.clear()
+    st.rerun()
+
+# ------------------------------
+# SWING TRADING SECTION WITH LOADING SPINNER
 # ------------------------------
 st.markdown("## 🤖 AI Swing Trading Scanner")
 st.caption("Scanning all stocks daily. Signals combine technical rules with RandomForest AI. Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days.")
 
-swing_data = []
-today = datetime.now().date()
-for name, ticker in ALL_STOCKS.items():
-    df = get_price_data(ticker)
-    sig = ai_swing_signal(df, name)
-    if sig and sig['Signal'] == 'SWING BUY':
-        last_seen = st.session_state.swing_history.get(name)
-        if last_seen is None or (today - last_seen).days >= 5:
-            sig['Fresh'] = '✅ Fresh'
-            st.session_state.swing_history[name] = today
-        else:
-            sig['Fresh'] = ''
-        swing_data.append(sig)
+with st.spinner("Fetching swing signals..."):
+    swing_data = []
+    today = datetime.now().date()
+    processed = 0
+    total = len(ALL_STOCKS)
+    progress_bar = st.progress(0, text="Scanning stocks...")
+    for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
+        df = get_price_data(ticker)
+        sig = ai_swing_signal(df, name)
+        if sig and sig['Signal'] == 'SWING BUY':
+            last_seen = st.session_state.swing_history.get(name)
+            if last_seen is None or (today - last_seen).days >= 5:
+                sig['Fresh'] = '✅ Fresh'
+                st.session_state.swing_history[name] = today
+            else:
+                sig['Fresh'] = ''
+            swing_data.append(sig)
+        processed += 1
+        progress_bar.progress((idx+1)/total, text=f"Scanned {idx+1}/{total} stocks")
+    progress_bar.empty()
 
-if swing_data:
-    swing_df = pd.DataFrame(swing_data)
-    def highlight_fresh(row):
-        if row['Fresh'] == '✅ Fresh':
-            return ['background-color: #cffafe'] * len(row)
-        elif row['Signal'] == 'SWING BUY':
-            return ['background-color: #d4edda'] * len(row)
-        return [''] * len
