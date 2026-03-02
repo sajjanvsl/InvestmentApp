@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from ta.momentum import RSIIndicator
 from datetime import datetime, timedelta
+import json
+import os
 
 # Attempt to import sklearn – fallback if not available
 try:
@@ -19,7 +21,7 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# CUSTOM CSS (professional)
+# CUSTOM CSS (unchanged, professional)
 # ------------------------------
 st.markdown("""
 <style>
@@ -122,7 +124,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         margin-top: 2rem;
     }
-    /* Priority ranking styling */
     .priority-box {
         background: white;
         padding: 2rem;
@@ -150,6 +151,18 @@ st.markdown("""
     }
     .priority-sell {
         color: #b91c1c;
+    }
+    .delete-btn {
+        background-color: #fee2e2;
+        color: #991b1b;
+        border: none;
+        border-radius: 20px;
+        padding: 0.2rem 0.8rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+    }
+    .delete-btn:hover {
+        background-color: #fecaca;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -192,6 +205,59 @@ ALL_STOCKS = {
     "SETL": "SETL.NS",
     "TDPOWERSYS": "TDPOWERSYS.NS"
 }
+
+# ------------------------------
+# DATA PERSISTENCE (JSON file)
+# ------------------------------
+HOLDINGS_FILE = "holdings_data.json"
+
+def load_holdings():
+    """Load holdings from JSON file. Returns DataFrame or None."""
+    if os.path.exists(HOLDINGS_FILE):
+        try:
+            with open(HOLDINGS_FILE, 'r') as f:
+                data = json.load(f)
+            if data:
+                return pd.DataFrame(data)
+        except:
+            pass
+    return None
+
+def save_holdings(df):
+    """Save holdings DataFrame to JSON file."""
+    if df is not None and not df.empty:
+        # Convert to records for JSON
+        records = df.to_dict(orient='records')
+        with open(HOLDINGS_FILE, 'w') as f:
+            json.dump(records, f, indent=2)
+    else:
+        # If empty, remove file
+        if os.path.exists(HOLDINGS_FILE):
+            os.remove(HOLDINGS_FILE)
+
+def load_sold_history():
+    """Load sold stocks history from JSON."""
+    sold_file = "sold_history.json"
+    if os.path.exists(sold_file):
+        try:
+            with open(sold_file, 'r') as f:
+                data = json.load(f)
+            if data:
+                return pd.DataFrame(data)
+        except:
+            pass
+    return pd.DataFrame(columns=['Stock', 'Qty', 'Avg Price', 'Sell Price', 'Sell Date', 'P&L'])
+
+def save_sold_history(df):
+    """Save sold history."""
+    sold_file = "sold_history.json"
+    if df is not None and not df.empty:
+        records = df.to_dict(orient='records')
+        with open(sold_file, 'w') as f:
+            json.dump(records, f, indent=2)
+    else:
+        if os.path.exists(sold_file):
+            os.remove(sold_file)
 
 # ------------------------------
 # DATA FETCHING (cached)
@@ -263,6 +329,14 @@ def get_fundamental_data(ticker):
 
         promoter = np.nan
 
+        # Magic Formula components
+        # Enterprise Value = Market Cap + Debt - Cash
+        cash = info.get('totalCash', np.nan)
+        if pd.isna(cash):
+            cash = 0
+        ev = market_cap * 1e7 + (total_debt if not pd.isna(total_debt) else 0) - cash
+        ey = (ebit / ev) * 100 if ev and ev != 0 else np.nan
+
         return {
             'sales_growth': sales_growth,
             'profit_growth': profit_growth,
@@ -274,7 +348,10 @@ def get_fundamental_data(ticker):
             'fcf_positive': fcf_positive,
             'promoter': promoter,
             'current_price': current_price,
-            'info': info
+            'info': info,
+            'ebit': ebit,
+            'ev': ev,
+            'ey': ey
         }
     except Exception:
         return None
@@ -294,7 +371,6 @@ def screen_stock(fund):
         'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
     }
     criteria_met = sum(criteria.values())
-    # Simple classification: if all 9 met -> BUY, else HOLD (for now)
     if all(criteria.values()):
         rec = "BUY"
     else:
@@ -305,7 +381,6 @@ def screen_stock(fund):
 # AI SWING SCANNER (unchanged)
 # ------------------------------
 def train_simple_model(df):
-    """Train a simple RandomForest on the given dataframe (no parallelism)."""
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
         return None, None
     try:
@@ -390,121 +465,44 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# PRIORITY RANKING FUNCTION
+# INTRADAY SELECTION (simple logic)
 # ------------------------------
-def generate_priority_ranking(portfolio_df):
-    """Generate a markdown string with tiered priority ranking based on criteria met."""
-    # Exclude ETFs from ranking
-    exclude_patterns = ['MON', 'BEES', 'GOLD', 'SILVER', 'LIQUID', 'SMALL', 'TMCV', 'TMPV']
-    stocks = []
-    for _, row in portfolio_df.iterrows():
-        name = row['Stock']
-        if any(pattern in name for pattern in exclude_patterns):
+def intraday_picks():
+    """Generate simple intraday picks based on volume and price action."""
+    picks = []
+    for name, ticker in ALL_STOCKS.items():
+        df = get_price_data(ticker)
+        if df.empty or len(df) < 5:
             continue
-        # We need criteria count – stored in 'Criteria Met'? We didn't store yet. We'll recompute.
-        # For now, we have 'Recommendation' which is BUY if all criteria met. But we need count.
-        # Actually we haven't stored criteria count in portfolio_df. We need to modify the processing to include it.
-        # We'll do that later; for now, we'll use a placeholder based on recommendation and maybe ROCE.
-        # But to match user's example, we need actual counts. Let's assume we will store 'Criteria_Met' in portfolio_df.
-        # We'll add it in processing.
-        pass
-    # Placeholder – in real code, we need to include Criteria_Met.
-    # For the purpose of this answer, we'll generate a static example matching the user's request.
-    # In the final code below, we'll actually compute and store criteria count.
-    return """
-# 🟢 PRIORITY BUY (Add on dips / accumulate)
-
-Closest to your screener — high multibagger probability
-
-### 🔥 Tier 1 (Highest conviction)
-
-1. **HAL** – Defence + cash rich + ROCE monster
-2. **Mazagon Dock** – Order book visibility
-3. **VBL** – Earnings compounding machine
-4. **Trent** – Retail growth story
-5. **Astral** – Long-term compounder
-
-👉 Add aggressively on corrections.
-
----
-
-### 🟢 Tier 2 (Strong but slightly higher risk)
-
-6. **Waaree Energies** – Solar export boom
-7. **Anant Raj** – Real estate rerating
-8. **BSE Ltd** – Exchange monopoly + operating leverage
-
-👉 Accumulate slowly.
-
----
-
-# 🟡 HOLD (Good but not perfect formula fit)
-
-### Stable compounders
-
-9. **TCS** – Safe but slow growth
-10. **Cipla** – Defensive pharma
-11. **HDFC Bank** – Stability anchor
-
-👉 Hold for balance, not aggressive buying.
-
----
-
-### Cyclical / theme-based holds
-
-12. **Adani Ports** – Infra growth
-13. **IRCTC** – Monopoly but expensive
-14. **IREDA** – High growth but leveraged
-15. **Jio Financial** – Optionality play
-
-👉 Hold with monitoring.
-
----
-
-# ⚠️ HOLD WITH CAUTION
-
-(Mixed fundamentals / valuation risk)
-
-16. **NHPC** – PSU drag
-17. **ICICI AMC** – Slow growth asset manager
-18. **Ganesha Housing** – Cyclical realty
-19. **TRUALT** – Low visibility
-
----
-
-# 🔴 SELL / REDUCE FIRST
-
-(If strictly following your formula)
-
-### Weakest fundamental alignment
-
-1. **NHPC** – Low ROCE + low growth
-2. **TRUALT** – Unclear financial quality
-3. **Ganesha Housing** – Cyclical risk
-4. **Overweight ETFs** (if goal = stock alpha)
-
----
-
-# ⚖️ NOT PART OF STOCK SCREEN (Keep only for allocation)
-
-These are not “sell”, but **exclude from formula logic**:
-
-* MON100
-* SILVERBEES
-* GOLDBEES
-* LIQUIDBEES
-* SMALL250
-* TMCV
-* TMPV
-
-👉 Keep only if you want diversification.
-"""
+        close = df['Close'].astype(float)
+        volume = df['Volume']
+        # Conditions: volume > 1.5x average(20), price > 20MA, and positive day
+        avg_vol = volume.rolling(20).mean().iloc[-1]
+        if avg_vol == 0:
+            continue
+        vol_ratio = volume.iloc[-1] / avg_vol
+        ma20 = close.rolling(20).mean().iloc[-1]
+        prev_close = close.iloc[-2] if len(close) > 1 else close.iloc[-1]
+        day_change = (close.iloc[-1] - prev_close) / prev_close * 100
+        if vol_ratio > 1.5 and close.iloc[-1] > ma20 and day_change > 1:
+            entry = close.iloc[-1]
+            target = entry * 1.03  # 3% target
+            stop = entry * 0.98     # 2% stop
+            picks.append({
+                'Stock': name,
+                'Entry': round(entry, 2),
+                'Target': round(target, 2),
+                'Stop Loss': round(stop, 2),
+                'Volume Surge': f"{vol_ratio:.1f}x",
+                'Day Change %': f"{day_change:.1f}%"
+            })
+    return picks
 
 # ------------------------------
-# SESSION STATE
+# SESSION STATE INIT (load persisted data)
 # ------------------------------
 if 'holdings_df' not in st.session_state:
-    st.session_state.holdings_df = None
+    st.session_state.holdings_df = load_holdings()
 if 'portfolio_df' not in st.session_state:
     st.session_state.portfolio_df = None
 if 'total_value' not in st.session_state:
@@ -515,12 +513,14 @@ if 'buy_count' not in st.session_state:
     st.session_state.buy_count = 0
 if 'swing_history' not in st.session_state:
     st.session_state.swing_history = {}
+if 'sold_history' not in st.session_state:
+    st.session_state.sold_history = load_sold_history()
 
 # ------------------------------
 # HEADER
 # ------------------------------
 st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#64748b;">AI‑Powered Edition</span></div>', unsafe_allow_html=True)
-st.markdown("#### Institutional‑grade analytics with AI swing scanner & fundamental screener")
+st.markdown("#### Institutional‑grade analytics with AI swing scanner, Magic Formula, and intraday picks")
 
 # ------------------------------
 # SWING TRADING SECTION (top)
@@ -528,7 +528,6 @@ st.markdown("#### Institutional‑grade analytics with AI swing scanner & fundam
 st.markdown("## 🤖 AI Swing Trading Scanner")
 st.caption("Scanning all stocks daily. Signals combine technical rules with RandomForest AI (trained on 5‑day forward returns). Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days.")
 
-# Generate swing signals
 swing_data = []
 today = datetime.now().date()
 for name, ticker in ALL_STOCKS.items():
@@ -554,6 +553,18 @@ if swing_data:
     st.dataframe(swing_df.style.apply(highlight_fresh, axis=1), use_container_width=True)
 else:
     st.info("No swing buy signals today.")
+
+# ------------------------------
+# INTRADAY PICKS SECTION (after swing)
+# ------------------------------
+st.markdown("## ⚡ Intraday Stock Picks")
+st.caption("Stocks with volume surge >1.5x average, price above 20MA, and positive day change. Targets: +3%, Stop: -2%.")
+intraday = intraday_picks()
+if intraday:
+    intraday_df = pd.DataFrame(intraday)
+    st.dataframe(intraday_df, use_container_width=True)
+else:
+    st.info("No intraday picks at this moment.")
 
 st.markdown("---")
 
@@ -610,12 +621,11 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
         st.session_state.buy_count = buy_count
 
     # ------------------------------
-    # PRIORITY RANKING SECTION (above metrics)
+    # PRIORITY RANKING
     # ------------------------------
     st.markdown("## 📊 Buy / Hold / Sell Priority Ranking")
     st.markdown("Based on your formula (growth + quality + undervaluation). Ranked by criteria fit and future potential.")
 
-    # Build ranking from actual data
     exclude_patterns = ['MON', 'BEES', 'GOLD', 'SILVER', 'LIQUID', 'SMALL', 'TMCV', 'TMPV']
     stock_rank = []
     for _, row in st.session_state.portfolio_df.iterrows():
@@ -629,10 +639,8 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
             'Sales Growth': row['Sales Growth']
         })
 
-    # Sort by criteria met descending, then ROCE
     stock_rank.sort(key=lambda x: (x['Criteria Met'], x['ROCE']), reverse=True)
 
-    # Tier assignment
     tier1 = []
     tier2 = []
     hold_stable = []
@@ -640,7 +648,6 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
     hold_caution = []
     sell = []
 
-    # Simple tiering based on criteria count (adjust as needed)
     for s in stock_rank:
         if s['Criteria Met'] >= 8:
             tier1.append(s['Stock'])
@@ -653,13 +660,10 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
         else:
             sell.append(s['Stock'])
 
-    # For cyclical, we need to identify which ones are cyclical – we'll just put some in a separate list based on name.
     cyclical_keywords = ['ADANI', 'IRCTC', 'IREDA', 'JIO', 'NHPC', 'ICICI', 'GANESH']
-    # Move some from hold_stable to hold_cyclical based on name
     hold_cyclical = [s for s in hold_stable if any(k in s for k in cyclical_keywords)]
     hold_stable = [s for s in hold_stable if s not in hold_cyclical]
 
-    # Generate markdown
     priority_md = f"""
 # 🟢 PRIORITY BUY (Add on dips / accumulate)
 
@@ -706,7 +710,6 @@ Closest to your screener — high multibagger probability
 ---
 
 # ⚖️ NOT PART OF STOCK SCREEN (Keep only for allocation)
-
 These are not “sell”, but **exclude from formula logic**:
 * MON100
 * SILVERBEES
@@ -720,7 +723,7 @@ These are not “sell”, but **exclude from formula logic**:
 """
     st.markdown(f'<div class="priority-box">{priority_md}</div>', unsafe_allow_html=True)
 
-    # Metrics cards
+    # Metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""
@@ -779,25 +782,57 @@ These are not “sell”, but **exclude from formula logic**:
 
     st.markdown("---")
 
-    # TABS for Holdings and Charts
-    tab1, tab2 = st.tabs(["📊 Holdings & Recommendations", "📈 Charts"])
+    # TABS
+    tab1, tab2, tab3 = st.tabs(["📊 Holdings & Recommendations", "📈 Charts", "🧙 Magic Formula"])
+
     with tab1:
         st.subheader("Your Holdings – Long‑Term Analysis")
-        st.caption("BUY = meets all 9 fundamental criteria. HOLD = fails at least one. 'Criteria Met' shows how many of 9 are satisfied.")
-        st.dataframe(
-            st.session_state.portfolio_df.style.format({
-                'Avg Price': '₹{:.2f}',
-                'LTP (CSV)': '₹{:.2f}',
-                'Current Price': '₹{:.2f}',
-                'Cur Value': '₹{:.2f}',
-                'P&L': '₹{:.2f}',
-                'P&L %': '{:+.2f}%'
-            }, na_rep='-').applymap(
-                lambda x: 'background-color: #d4edda' if x == 'BUY' else ('background-color: #fff3cd' if x == 'HOLD' else ''),
-                subset=['Recommendation']
-            ),
-            use_container_width=True
-        )
+        st.caption("BUY = meets all 9 fundamental criteria. HOLD = fails at least one. 'Criteria Met' shows how many of 9 are satisfied. Click Delete to sell stock.")
+
+        # Display holdings with delete button
+        for idx, row in st.session_state.portfolio_df.iterrows():
+            col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([1.5,1,1,1,1,1,1,1,0.8])
+            with col1:
+                st.write(row['Stock'])
+            with col2:
+                st.write(f"{row['Qty']:.0f}")
+            with col3:
+                st.write(f"₹{row['Avg Price']:.2f}" if not pd.isna(row['Avg Price']) else '-')
+            with col4:
+                st.write(f"₹{row['Current Price']:.2f}")
+            with col5:
+                st.write(f"₹{row['Cur Value']:.2f}")
+            with col6:
+                st.write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
+            with col7:
+                st.write(f"{row['P&L %']:+.2f}%" if not pd.isna(row['P&L %']) else '-')
+            with col8:
+                st.write(f"{row['Criteria Met']}/9")
+            with col9:
+                if st.button("🗑️", key=f"del_{idx}"):
+                    # Move to sold history
+                    sold_entry = {
+                        'Stock': row['Stock'],
+                        'Qty': row['Qty'],
+                        'Avg Price': row['Avg Price'],
+                        'Sell Price': row['Current Price'],
+                        'Sell Date': today.strftime('%Y-%m-%d'),
+                        'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
+                    }
+                    st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
+                    save_sold_history(st.session_state.sold_history)
+                    # Remove from holdings
+                    st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != row['Stock']].reset_index(drop=True)
+                    save_holdings(st.session_state.holdings_df)
+                    st.session_state.portfolio_df = None
+                    st.rerun()
+
+        st.markdown("#### Sold History")
+        if not st.session_state.sold_history.empty:
+            st.dataframe(st.session_state.sold_history, use_container_width=True)
+        else:
+            st.info("No sold stocks yet.")
+
     with tab2:
         st.subheader("Price Chart")
         if not st.session_state.portfolio_df.empty:
@@ -824,6 +859,30 @@ These are not “sell”, but **exclude from formula logic**:
                 st.warning("No chart data.")
         else:
             st.info("No stocks to display.")
+
+    with tab3:
+        st.subheader("Magic Formula Ranking")
+        st.caption("Ranked by Return on Capital (ROC) and Earnings Yield (EY). Lower combined rank is better.")
+        magic_data = []
+        for name, ticker in ALL_STOCKS.items():
+            fund = get_fundamental_data(ticker)
+            if fund and not pd.isna(fund['roce']) and not pd.isna(fund['ey']):
+                magic_data.append({
+                    'Stock': name,
+                    'ROC (%)': round(fund['roce'], 2),
+                    'EY (%)': round(fund['ey'], 2)
+                })
+        if magic_data:
+            magic_df = pd.DataFrame(magic_data)
+            magic_df['ROC Rank'] = magic_df['ROC (%)'].rank(ascending=False)
+            magic_df['EY Rank'] = magic_df['EY (%)'].rank(ascending=False)
+            magic_df['Combined'] = magic_df['ROC Rank'] + magic_df['EY Rank']
+            magic_df = magic_df.sort_values('Combined').reset_index(drop=True)
+            magic_df['Magic Rank'] = magic_df.index + 1
+            st.dataframe(magic_df[['Magic Rank', 'Stock', 'ROC (%)', 'EY (%)']], use_container_width=True)
+        else:
+            st.info("Insufficient data for Magic Formula.")
+
 else:
     st.info("No holdings data. Please add stocks using the section below.")
 
@@ -857,6 +916,7 @@ if uploaded_file is not None:
                 st.error("No stocks from your CSV are in the master list.")
             else:
                 st.session_state.holdings_df = df_hold
+                save_holdings(df_hold)
                 st.session_state.portfolio_df = None
                 st.success(f"Loaded {len(df_hold)} stocks from CSV.")
                 st.rerun()
@@ -878,6 +938,7 @@ if single_stock:
         if st.session_state.holdings_df is not None:
             if single_stock not in st.session_state.holdings_df['Instrument'].values:
                 st.session_state.holdings_df = pd.concat([st.session_state.holdings_df, new_row], ignore_index=True)
+                save_holdings(st.session_state.holdings_df)
                 st.session_state.portfolio_df = None
                 st.success(f"Added {single_stock}.")
                 st.rerun()
@@ -885,6 +946,7 @@ if single_stock:
                 st.warning(f"{single_stock} already in holdings.")
         else:
             st.session_state.holdings_df = new_row
+            save_holdings(st.session_state.holdings_df)
             st.session_state.portfolio_df = None
             st.success(f"Added {single_stock}.")
             st.rerun()
