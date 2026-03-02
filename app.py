@@ -21,208 +21,202 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# ENHANCED CSS – FULL BLUE BACKGROUND
+# CLEAN WHITE BACKGROUND WITH DARK RED HEADER
 # ------------------------------
 st.markdown("""
 <style>
-    /* Force full‑page blue gradient */
+    /* Clean white background */
     html, body, [data-testid="stAppViewContainer"] {
-        background: linear-gradient(145deg, #1e3a8a 0%, #3b82f6 100%) !important;
-        background-attachment: fixed !important;
+        background: #ffffff !important;
     }
     .stApp {
         background: transparent !important;
     }
-    /* Headers with white text for contrast */
+    /* Headers with dark red */
     h1, h2, h3, h4, h5, h6 {
-        color: white !important;
+        color: #8B0000 !important;  /* dark red */
         font-weight: 600;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
-    /* Metric cards – frosted glass */
+    .main-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 2rem;
+        background: #f8f9fa;
+        padding: 1rem 2rem;
+        border-radius: 40px;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+    .logo {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #8B0000 !important;  /* dark red */
+    }
+    /* Metric cards – subtle white cards */
     .metric-card {
-        background: rgba(255, 255, 255, 0.15) !important;
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
-        border-radius: 24px !important;
-        padding: 1.5rem !important;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2) !important;
-        color: white !important;
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 24px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        color: #333;
         transition: all 0.2s ease;
+        height: 100%;
     }
     .metric-card:hover {
-        transform: translateY(-5px);
-        background: rgba(255, 255, 255, 0.25) !important;
-        border-color: rgba(255, 255, 255, 0.5) !important;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.1);
     }
     .metric-label {
-        color: rgba(255, 255, 255, 0.8) !important;
+        color: #666;
         font-size: 0.85rem;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .metric-value {
-        color: white !important;
+        color: #1e3a8a;  /* dark blue */
         font-size: 2rem;
         font-weight: 700;
     }
     .metric-delta {
-        color: rgba(255, 255, 255, 0.9) !important;
+        color: #333;
     }
     /* Tags */
     .buy-tag {
-        background: #22c55e !important;
-        color: white !important;
+        background: #d4edda;
+        color: #155724;
         padding: 0.25rem 0.8rem;
         border-radius: 30px;
         font-size: 0.8rem;
         font-weight: 600;
         display: inline-block;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .sell-tag {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 0.25rem 0.8rem;
+        border-radius: 30px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: inline-block;
+    }
+    .hold-tag {
+        background: #fff3cd;
+        color: #856404;
+        padding: 0.25rem 0.8rem;
+        border-radius: 30px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: inline-block;
     }
     .fresh-tag {
-        background: #06b6d4 !important;
-        color: white !important;
+        background: #cffafe;
+        color: #0e7490;
         padding: 0.25rem 0.8rem;
         border-radius: 30px;
         font-size: 0.8rem;
         font-weight: 600;
         display: inline-block;
         margin-left: 0.5rem;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
     }
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 10px;
-        background: rgba(255, 255, 255, 0.2) !important;
-        backdrop-filter: blur(8px);
+        background: #f8f9fa;
         padding: 0.5rem 1.5rem;
         border-radius: 50px;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid #e0e0e0;
     }
     .stTabs [data-baseweb="tab"] {
         border-radius: 30px;
         padding: 0.6rem 1.5rem;
         font-weight: 500;
-        color: white !important;
+        color: #333;
     }
     .stTabs [aria-selected="true"] {
-        background-color: rgba(255, 255, 255, 0.3) !important;
+        background-color: #8B0000 !important;
         color: white !important;
-        border: 1px solid white;
     }
     /* DataFrames */
     .stDataFrame {
         border-radius: 20px;
         overflow: hidden;
-        background: rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .stDataFrame table {
-        background: transparent !important;
+        border: 1px solid #e0e0e0;
     }
     .stDataFrame th {
-        background: rgba(255, 255, 255, 0.2) !important;
-        color: white !important;
+        background: #f8f9fa !important;
+        color: #333 !important;
         font-weight: 600;
     }
     .stDataFrame td {
-        color: white !important;
-        background: rgba(255, 255, 255, 0.05) !important;
+        color: #333 !important;
     }
     /* Dividers */
     hr {
         margin: 2rem 0;
         border: none;
         height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
-    }
-    /* Header */
-    .main-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 2rem;
-        background: rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(8px);
-        padding: 1rem 2rem;
-        border-radius: 40px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .logo {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: white !important;
-        text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        background: linear-gradient(90deg, transparent, #ccc, transparent);
     }
     /* Input section */
     .input-section {
-        background: rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(8px);
+        background: #f8f9fa;
         padding: 2rem;
         border-radius: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid #e0e0e0;
         margin-top: 2rem;
     }
-    .input-section label {
-        color: white !important;
-    }
     .stTextInput input, .stFileUploader {
-        background: rgba(255, 255, 255, 0.2) !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
-        color: white !important;
-        border-radius: 30px !important;
+        background: white;
+        border: 1px solid #ccc;
+        border-radius: 30px;
     }
     /* Priority box */
     .priority-box {
-        background: rgba(255, 255, 255, 0.1) !important;
-        backdrop-filter: blur(8px);
+        background: #f8f9fa;
         padding: 2rem;
         border-radius: 30px;
-        border-left: 6px solid #fbbf24;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-left: 6px solid #8B0000;
+        border: 1px solid #e0e0e0;
         margin-bottom: 2rem;
-        color: white !important;
+        color: #333;
     }
     /* Debug box */
     .debug-box {
-        background: rgba(0, 0, 0, 0.2) !important;
-        border: 1px dashed rgba(255, 255, 255, 0.4);
+        background: #f1f3f5;
+        border: 1px dashed #8B0000;
         padding: 1rem;
         border-radius: 16px;
     }
     /* Info/warning messages */
     .stAlert {
-        background: rgba(255, 255, 255, 0.15) !important;
-        backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        color: white !important;
+        background: #f8f9fa;
+        border: 1px solid #ccc;
+        color: #333;
         border-radius: 16px;
     }
     /* Buttons */
     .stButton button {
-        background: rgba(255, 255, 255, 0.2) !important;
-        border: 1px solid rgba(255, 255, 255, 0.4) !important;
-        color: white !important;
-        border-radius: 30px !important;
+        background: white;
+        border: 1px solid #8B0000;
+        color: #8B0000;
+        border-radius: 30px;
         transition: all 0.2s;
     }
     .stButton button:hover {
-        background: rgba(255, 255, 255, 0.3) !important;
-        border-color: white !important;
+        background: #8B0000;
+        color: white;
     }
     /* Delete button (small trash can) */
     .delete-btn {
-        background: rgba(239, 68, 68, 0.3) !important;
-        border: 1px solid rgba(239, 68, 68, 0.6) !important;
-        color: white !important;
-        border-radius: 20px !important;
-        padding: 0.2rem 0.8rem !important;
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+        border-radius: 20px;
+        padding: 0.2rem 0.8rem;
     }
     .delete-btn:hover {
-        background: rgba(239, 68, 68, 0.5) !important;
+        background: #f5c6cb;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -439,8 +433,9 @@ def get_fundamental_data(ticker):
         return None
 
 def screen_stock(fund):
+    """Return recommendation based on number of criteria met."""
     if fund is None:
-        return "HOLD", {}, 0, {}
+        return "SELL", {}, 0, {}
     criteria = {
         'Sales growth >15%': fund['sales_growth'] > 15 if not pd.isna(fund['sales_growth']) else False,
         'Profit growth >15%': fund['profit_growth'] > 15 if not pd.isna(fund['profit_growth']) else False,
@@ -464,14 +459,17 @@ def screen_stock(fund):
         'Avg FCF (Cr)': fund['avg_fcf'],
         'Promoter': fund['promoter']
     }
-    if all(criteria.values()):
+    # Recommendation logic
+    if criteria_met >= 9:
         rec = "BUY"
-    else:
+    elif criteria_met >= 4:
         rec = "HOLD"
+    else:
+        rec = "SELL"
     return rec, criteria, criteria_met, values
 
 # ------------------------------
-# AI SWING SCANNER
+# AI SWING SCANNER (unchanged)
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -558,7 +556,7 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# INTRADAY PICKS
+# INTRADAY PICKS (scans all stocks)
 # ------------------------------
 def intraday_picks():
     picks = []
@@ -608,7 +606,7 @@ if 'sold_history' not in st.session_state:
 # ------------------------------
 # HEADER
 # ------------------------------
-st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:white;">Debug Edition</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#666;">Professional Edition</span></div>', unsafe_allow_html=True)
 st.markdown("#### Institutional‑grade analytics with AI swing scanner, Magic Formula, and intraday picks")
 
 # ------------------------------
@@ -619,7 +617,7 @@ if st.button("🔄 Refresh Data (clear cache)"):
     st.rerun()
 
 # ------------------------------
-# SWING TRADING SECTION WITH LOADING SPINNER
+# SWING TRADING SECTION (scans all stocks)
 # ------------------------------
 st.markdown("## 🤖 AI Swing Trading Scanner")
 st.caption("Scanning all stocks daily. Signals combine technical rules with RandomForest AI. Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days.")
@@ -658,7 +656,7 @@ else:
     st.warning("No swing buy signals found. This could be due to market hours, data availability, or API limits. Try the refresh button above.")
 
 # ------------------------------
-# INTRADAY PICKS SECTION
+# INTRADAY PICKS SECTION (scans all stocks)
 # ------------------------------
 st.markdown("## ⚡ Intraday Stock Picks")
 st.caption("Stocks with volume surge >1.2x OR price above 20MA. Targets: +2%, Stop: -2%.")
@@ -673,7 +671,7 @@ else:
 st.markdown("---")
 
 # ------------------------------
-# HOLDINGS PROCESSING
+# HOLDINGS PROCESSING (with BUY/HOLD/SELL based on criteria count)
 # ------------------------------
 if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
     if st.session_state.portfolio_df is None:
@@ -682,6 +680,8 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
         total_value = 0
         total_cost = 0
         buy_count = 0
+        hold_count = 0
+        sell_count = 0
         progress_bar = st.progress(0, text="Analyzing holdings...")
         for idx, row in st.session_state.holdings_df.iterrows():
             name = row['Instrument']
@@ -701,6 +701,10 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
             rec, criteria, criteria_met, values = screen_stock(fund)
             if rec == "BUY":
                 buy_count += 1
+            elif rec == "HOLD":
+                hold_count += 1
+            else:
+                sell_count += 1
             portfolio_data.append({
                 'Stock': name,
                 'Qty': row['Qty'],
@@ -726,9 +730,11 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
         st.session_state.total_value = total_value
         st.session_state.total_cost = total_cost
         st.session_state.buy_count = buy_count
+        st.session_state.hold_count = hold_count
+        st.session_state.sell_count = sell_count
         st.session_state.debug_df = pd.DataFrame(debug_data)
 
-    # Priority Ranking (simplified placeholder – you can expand as before)
+    # Priority Ranking (simplified)
     st.markdown("## 📊 Buy / Hold / Sell Priority Ranking")
     st.markdown("Based on your formula (growth + quality + undervaluation). Ranked by criteria fit.")
 
@@ -781,8 +787,8 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
     with col3:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-label">Stocks Meeting All Criteria</div>
-            <div class="metric-value">{st.session_state.buy_count}</div>
+            <div class="metric-label">BUY / HOLD / SELL</div>
+            <div class="metric-value">{st.session_state.buy_count} / {st.session_state.hold_count} / {st.session_state.sell_count}</div>
         </div>
         """, unsafe_allow_html=True)
     with col4:
@@ -812,7 +818,7 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
 
     with tab1:
         st.subheader("Your Holdings – Long‑Term Analysis")
-        st.caption("BUY = meets all 9 fundamental criteria. HOLD = fails at least one. Click Delete to sell stock.")
+        st.caption("BUY = meets all 9 criteria, HOLD = 4-8 criteria, SELL = 0-3 criteria. Click Delete to sell stock.")
 
         # Display holdings with delete button
         for idx, row in st.session_state.portfolio_df.iterrows():
@@ -830,7 +836,13 @@ if st.session_state.holdings_df is not None and not st.session_state.holdings_df
             with col6:
                 st.write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
             with col7:
-                st.write(f"{row['Criteria Met']}/9")
+                # Show recommendation tag
+                if row['Recommendation'] == 'BUY':
+                    st.markdown('<span class="buy-tag">BUY</span>', unsafe_allow_html=True)
+                elif row['Recommendation'] == 'HOLD':
+                    st.markdown('<span class="hold-tag">HOLD</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<span class="sell-tag">SELL</span>', unsafe_allow_html=True)
             with col8:
                 if st.button("🗑️", key=f"del_{idx}"):
                     sold_entry = {
@@ -961,4 +973,4 @@ if single_stock:
 st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
-st.caption("Data sourced from Yahoo Finance. Debug mode enabled – use expander to see fundamental values.")
+st.caption("Data sourced from Yahoo Finance. Recommendations based on your 9‑factor formula.")
