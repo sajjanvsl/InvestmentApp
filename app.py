@@ -457,7 +457,7 @@ def save_sold(df):
             os.remove(SOLD_FILE)
 
 # ------------------------------
-# IMPROVED FUNDAMENTAL FETCHING (unchanged)
+# IMPROVED FUNDAMENTAL FETCHING (with 5‑year growth)
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -586,7 +586,7 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# COMBINED SCREENER (unchanged)
+# COMBINED SCREENER (all criteria from both formulas)
 # ------------------------------
 def screen_stock(fund):
     if fund is None:
@@ -1287,9 +1287,9 @@ def main_app():
                     # Convert to DataFrame for better display
                     debug_dict = stock_debug.to_dict()
                     debug_df = pd.DataFrame(list(debug_dict.items()), columns=['Metric', 'Value'])
-                    st.dataframe(debug_df.style.format({
-                        'Value': '{:.2f}' if debug_df['Value'].dtype in ['float64', 'int64'] else '{}'
-                    }), use_container_width=True)
+                    # Format numeric values
+                    debug_df['Value'] = debug_df['Value'].apply(lambda x: f"{x:.2f}" if isinstance(x, (int, float)) and not pd.isna(x) else ('N/A' if pd.isna(x) else x))
+                    st.dataframe(debug_df, use_container_width=True)
             else:
                 st.info("No debug data available.")
 
