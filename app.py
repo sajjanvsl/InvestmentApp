@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from ta.momentum import RSIIndicator
-from ta.trend import EMAIndicator, MACD
+from ta.trend import EMAIndicator
 from datetime import datetime, timedelta
 import json
 import os
@@ -23,7 +23,7 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# ENHANCED CSS (unchanged, professional)
+# ENHANCED CSS WITH STABLE ANIMATIONS
 # ------------------------------
 st.markdown("""
 <style>
@@ -153,15 +153,16 @@ st.markdown("""
         color: #dc3545;
         font-weight: 400;
     }
-    /* Blinking animation for top picks */
-    @keyframes blink {
+    /* Stable blinking animation - CSS only, no re-renders */
+    @keyframes stable-blink {
         0% { background-color: #fff3cd; border-color: #ffc107; }
         50% { background-color: #ffe69c; border-color: #ff8c00; }
         100% { background-color: #fff3cd; border-color: #ffc107; }
     }
     .top-pick-row {
-        animation: blink 1.5s infinite;
-        font-weight: 600;
+        animation: stable-blink 2s infinite !important;
+        font-weight: 600 !important;
+        will-change: background-color; /* Optimize for animation */
     }
     .top-pick-badge {
         background: #ffc107;
@@ -209,20 +210,6 @@ st.markdown("""
         font-size: 1.8rem;
         font-weight: 700;
         color: #8B0000 !important;
-    }
-    /* Logout button */
-    .logout-btn {
-        background: #f8f9fa;
-        border: 1px solid #8B0000;
-        color: #8B0000;
-        border-radius: 30px;
-        padding: 0.5rem 1.5rem;
-        font-weight: 500;
-        cursor: pointer;
-    }
-    .logout-btn:hover {
-        background: #8B0000;
-        color: white;
     }
     /* Input section */
     .input-section {
@@ -280,20 +267,16 @@ st.markdown("""
     .criteria-row:last-child {
         border-bottom: none;
     }
-    /* Screener cards */
-    .screener-card {
-        background: white;
-        border-radius: 16px;
-        padding: 1rem;
-        margin-bottom: 1rem;
-        border-left: 4px solid #8B0000;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    /* Loading indicator */
+    .stSpinner {
+        text-align: center;
+        padding: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# AUTHENTICATION FUNCTIONS (unchanged)
+# AUTHENTICATION FUNCTIONS
 # ------------------------------
 USERS_FILE = "users.json"
 
@@ -376,9 +359,17 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING (enhanced for 5-min intraday)
+# CACHE MANAGEMENT
 # ------------------------------
-@st.cache_data(ttl=300)  # 5 minutes cache for intraday
+@st.cache_resource(ttl=3600)
+def get_cache_timestamp():
+    """Returns a timestamp to help with cache invalidation."""
+    return datetime.now().strftime("%Y-%m-%d %H:00:00")  # Cache for 1 hour
+
+# ------------------------------
+# DATA FETCHING WITH CACHE
+# ------------------------------
+@st.cache_data(ttl=300, show_spinner=False)
 def get_intraday_data(ticker):
     """Fetch 5-minute intraday data."""
     try:
@@ -392,7 +383,7 @@ def get_intraday_data(ticker):
     except Exception:
         return pd.DataFrame()
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_price_data(ticker):
     max_retries = 2
     for attempt in range(max_retries):
@@ -411,7 +402,7 @@ def get_price_data(ticker):
     return pd.DataFrame()
 
 # ------------------------------
-# DATA PERSISTENCE (unchanged)
+# DATA PERSISTENCE
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
@@ -457,7 +448,7 @@ def save_sold(df):
             os.remove(SOLD_FILE)
 
 # ------------------------------
-# IMPROVED FUNDAMENTAL FETCHING (with 5‑year growth)
+# FUNDAMENTAL FETCHING
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -469,7 +460,6 @@ def safe_get_series(df, key):
     return pd.Series(dtype=float)
 
 def cagr(series, years=5):
-    """CAGR over the last `years` (requires at least 2 points)."""
     if len(series) < 2:
         return np.nan
     idx = min(years, len(series)-1)
@@ -479,7 +469,7 @@ def cagr(series, years=5):
         return np.nan
     return ((latest / past) ** (1/idx) - 1) * 100
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_fundamental_data(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -495,13 +485,13 @@ def get_fundamental_data(ticker):
         profit = safe_get_series(financials, 'Net Income')
         profit_growth_5y = cagr(profit, years=5)
 
-        # 3‑year growth (original formula)
+        # 3‑year growth
         sales_growth_3y = cagr(revenue, years=3)
         profit_growth_3y = cagr(profit, years=3)
 
         market_cap = info.get('marketCap', 0) / 1e7
 
-        # ROCE (3‑year average)
+        # ROCE
         ebit_series = safe_get_series(financials, 'EBIT')
         ta_series = safe_get_series(balance_sheet, 'Total Assets')
         cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
@@ -515,7 +505,7 @@ def get_fundamental_data(ticker):
                 roce_values.append((ebit / capital) * 100)
         avg_roce = np.mean(roce_values) if roce_values else np.nan
 
-        # Return on Invested Capital (ROIC)
+        # ROIC
         total_debt = safe_get_series(balance_sheet, 'Total Debt')
         if len(total_debt) > 0:
             total_debt = total_debt.iloc[0]
@@ -543,7 +533,7 @@ def get_fundamental_data(ticker):
         high_52w = info.get('fiftyTwoWeekHigh', np.nan)
         down_from_high = ((high_52w - current_price) / high_52w) * 100 if high_52w and current_price else np.nan
 
-        # Free Cash Flow (average 3 years)
+        # Free Cash Flow
         fcf_series = safe_get_series(cashflow, 'Free Cash Flow')
         fcf_cr = fcf_series / 1e7
         avg_fcf = fcf_cr.iloc[:3].mean() if len(fcf_cr) > 0 else np.nan
@@ -553,10 +543,10 @@ def get_fundamental_data(ticker):
         if not pd.isna(promoter):
             promoter = promoter * 100
 
-        # Book Value per Share
+        # Book Value
         book_value = info.get('bookValue', np.nan)
 
-        # Net Profit last year (in Crores)
+        # Net Profit
         net_profit = profit.iloc[0] / 1e7 if len(profit) > 0 else np.nan
 
         # Earnings Yield
@@ -586,13 +576,12 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# COMBINED SCREENER (all criteria from both formulas)
+# COMBINED SCREENER
 # ------------------------------
 def screen_stock(fund):
     if fund is None:
         return "SELL", {}, 0, {}
     
-    # Original 9 criteria
     criteria_original = {
         'Sales growth 3Y >15%': fund['sales_growth_3y'] > 15 if not pd.isna(fund['sales_growth_3y']) else False,
         'Profit growth 3Y >15%': fund['profit_growth_3y'] > 15 if not pd.isna(fund['profit_growth_3y']) else False,
@@ -605,7 +594,6 @@ def screen_stock(fund):
         'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
     }
     
-    # New Magic Formula criteria
     criteria_magic = {
         'ROIC >25%': fund['roic'] > 25 if not pd.isna(fund['roic']) else False,
         'Earnings Yield >15%': fund['ey'] > 15 if not pd.isna(fund['ey']) else False,
@@ -619,7 +607,6 @@ def screen_stock(fund):
         'Net Profit >200 Cr': fund['net_profit'] > 200 if not pd.isna(fund['net_profit']) else False
     }
     
-    # Combine all criteria
     all_criteria = {**criteria_original, **criteria_magic}
     criteria_met = sum(all_criteria.values())
     total_criteria = len(all_criteria)
@@ -642,12 +629,11 @@ def screen_stock(fund):
         'EY': fund['ey']
     }
     
-    # Recommendation logic
-    if criteria_met >= total_criteria * 0.8:  # 80%+ criteria met
+    if criteria_met >= total_criteria * 0.8:
         rec = "SUPER BUY"
-    elif criteria_met >= total_criteria * 0.6:  # 60-80% criteria met
+    elif criteria_met >= total_criteria * 0.6:
         rec = "BUY"
-    elif criteria_met >= total_criteria * 0.3:  # 30-60% criteria met
+    elif criteria_met >= total_criteria * 0.3:
         rec = "HOLD"
     else:
         rec = "SELL"
@@ -658,21 +644,17 @@ def screen_stock(fund):
 # SWING PULLBACK SCREENER
 # ------------------------------
 def swing_pullback_signal(df, name):
-    """Swing Pullback Screener conditions."""
     if df.empty or len(df) < 50:
         return None
     try:
         close = df['Close'].astype(float)
-        high = df['High'].astype(float)
         volume = df['Volume'].astype(float)
         
-        # Calculate indicators
         ema20 = close.ewm(span=20, adjust=False).mean()
         ema50 = close.ewm(span=50, adjust=False).mean()
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
         
-        # Latest values
         current_close = close.iloc[-1]
         current_ema20 = ema20.iloc[-1]
         current_ema50 = ema50.iloc[-1]
@@ -680,7 +662,6 @@ def swing_pullback_signal(df, name):
         current_volume = volume.iloc[-1]
         current_vol_sma = volume_sma20.iloc[-1]
         
-        # Conditions
         cond1 = current_close > current_ema50
         cond2 = current_ema20 > current_ema50
         cond3 = current_close <= 1.02 * current_ema20
@@ -697,8 +678,8 @@ def swing_pullback_signal(df, name):
                 'RSI': round(current_rsi, 1),
                 'Volume Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
                 'Entry': round(current_close, 2),
-                'Target': round(current_ema20 * 1.05, 2),  # 5% above 20 EMA
-                'Stop Loss': round(current_ema50 * 0.98, 2)  # 2% below 50 EMA
+                'Target': round(current_ema20 * 1.05, 2),
+                'Stop Loss': round(current_ema50 * 0.98, 2)
             }
         return None
     except Exception:
@@ -708,7 +689,6 @@ def swing_pullback_signal(df, name):
 # SWING BREAKOUT SCREENER
 # ------------------------------
 def swing_breakout_signal(df, name):
-    """Swing Breakout Screener conditions."""
     if df.empty or len(df) < 50:
         return None
     try:
@@ -716,14 +696,12 @@ def swing_breakout_signal(df, name):
         high = df['High'].astype(float)
         volume = df['Volume'].astype(float)
         
-        # Calculate indicators
         ema50 = close.ewm(span=50, adjust=False).mean()
         ema200 = close.ewm(span=200, adjust=False).mean()
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
         highest_high_20 = high.rolling(20).max()
         
-        # Latest values
         current_close = close.iloc[-1]
         prev_close = close.iloc[-2] if len(close) > 1 else current_close
         current_ema50 = ema50.iloc[-1]
@@ -733,8 +711,7 @@ def swing_breakout_signal(df, name):
         current_vol_sma = volume_sma20.iloc[-1]
         current_highest_high = highest_high_20.iloc[-1]
         
-        # Conditions
-        cond1 = current_close > current_highest_high and prev_close <= current_highest_high  # crosses above
+        cond1 = current_close > current_highest_high and prev_close <= current_highest_high
         cond2 = current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False
         cond3 = current_rsi > 60
         cond4 = current_ema50 > current_ema200
@@ -748,18 +725,17 @@ def swing_breakout_signal(df, name):
                 'RSI': round(current_rsi, 1),
                 'Volume Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
                 'Entry': round(current_close, 2),
-                'Target': round(current_close * 1.1, 2),  # 10% target
-                'Stop Loss': round(current_highest_high * 0.98, 2)  # 2% below breakout level
+                'Target': round(current_close * 1.1, 2),
+                'Stop Loss': round(current_highest_high * 0.98, 2)
             }
         return None
     except Exception:
         return None
 
 # ------------------------------
-# INTRADAY BREAKOUT SCREENER (5-min)
+# INTRADAY BREAKOUT SCREENER
 # ------------------------------
 def intraday_breakout_signal(name):
-    """Intraday Breakout Screener using 5-min data."""
     ticker = ALL_STOCKS[name]
     df = get_intraday_data(ticker)
     if df.empty or len(df) < 20:
@@ -770,15 +746,11 @@ def intraday_breakout_signal(name):
         low = df['Low'].astype(float)
         volume = df['Volume'].astype(float)
         
-        # Calculate indicators
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
-        
-        # VWAP calculation
         typical_price = (high + low + close) / 3
         vwap = (typical_price * volume).cumsum() / volume.cumsum()
         
-        # Latest values
         current_close = close.iloc[-1]
         prev_high = high.iloc[-2] if len(high) > 1 else high.iloc[-1]
         current_rsi = rsi.iloc[-1]
@@ -786,7 +758,6 @@ def intraday_breakout_signal(name):
         current_vol_sma = volume_sma20.iloc[-1]
         current_vwap = vwap.iloc[-1]
         
-        # Conditions
         cond1 = current_close > current_vwap
         cond2 = current_rsi > 55
         cond3 = current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False
@@ -800,15 +771,15 @@ def intraday_breakout_signal(name):
                 'Volume Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
                 'VWAP': round(current_vwap, 2),
                 'Entry': round(current_close, 2),
-                'Target': round(current_close * 1.02, 2),  # 2% target
-                'Stop Loss': round(current_vwap * 0.99, 2)  # 1% below VWAP
+                'Target': round(current_close * 1.02, 2),
+                'Stop Loss': round(current_vwap * 0.99, 2)
             }
         return None
     except Exception:
         return None
 
 # ------------------------------
-# AI SWING SCANNER (unchanged)
+# AI SWING SCANNER
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -895,17 +866,15 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# AI INTRADAY PICKS (enhanced)
+# AI INTRADAY PICKS
 # ------------------------------
 def ai_intraday_signal(df, name):
-    """Enhanced intraday pick with AI confirmation."""
     if df.empty or len(df) < 20:
         return None
     try:
         close = df['Close'].astype(float)
         volume = df['Volume']
         
-        # Technical indicators
         rsi = RSIIndicator(close).rsi()
         current_rsi = rsi.iloc[-1]
         ma20 = close.rolling(20).mean().iloc[-1]
@@ -915,7 +884,6 @@ def ai_intraday_signal(df, name):
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
         
-        # Rule-based conditions
         rule_score = 0
         if vol_ratio > 1.5:
             rule_score += 2
@@ -928,7 +896,6 @@ def ai_intraday_signal(df, name):
         if current_rsi < 70 and current_rsi > 30:
             rule_score += 1
         
-        # AI confidence (simple model)
         ai_confidence = 0.0
         if SKLEARN_AVAILABLE and len(df) > 50:
             model, scaler = train_simple_model(df)
@@ -943,8 +910,7 @@ def ai_intraday_signal(df, name):
                 pred_proba = model.predict_proba(features_scaled)[0]
                 ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
         
-        # Combined score (rule_score + AI)
-        combined_score = rule_score + (ai_confidence * 3)  # AI weight
+        combined_score = rule_score + (ai_confidence * 3)
         
         if combined_score >= 3:
             entry = current_price
@@ -967,7 +933,7 @@ def ai_intraday_signal(df, name):
 def intraday_picks():
     picks = []
     for name, ticker in ALL_STOCKS.items():
-        df = get_price_data(ticker)  # Use daily for AI intraday
+        df = get_price_data(ticker)
         sig = ai_intraday_signal(df, name)
         if sig:
             picks.append(sig)
@@ -1013,7 +979,6 @@ def show_login():
 # CRITERIA VISUALIZATION FUNCTION
 # ------------------------------
 def display_criteria_check(criteria_dict):
-    """Display criteria with checkmarks."""
     html = '<div class="criteria-table">'
     for criterion, met in criteria_dict.items():
         status = '✅' if met else '❌'
@@ -1026,7 +991,7 @@ def display_criteria_check(criteria_dict):
 # MAIN APP
 # ------------------------------
 def main_app():
-    # Session state for holdings - initialize all counters
+    # Session state initialization
     if 'holdings_df' not in st.session_state:
         st.session_state.holdings_df = load_holdings()
     if 'portfolio_df' not in st.session_state:
@@ -1051,8 +1016,10 @@ def main_app():
         st.session_state.debug_df = None
     if 'criteria_data' not in st.session_state:
         st.session_state.criteria_data = {}
+    if 'last_refresh' not in st.session_state:
+        st.session_state.last_refresh = datetime.now()
 
-    # Header with logout
+    # Header
     col1, col2 = st.columns([6, 1])
     with col1:
         st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#666;">Super Screener Edition</span></div>', unsafe_allow_html=True)
@@ -1065,11 +1032,12 @@ def main_app():
     st.markdown("#### Combined screener: Original 9‑factor + Magic Formula (19 criteria total)")
 
     # Manual refresh button
-    if st.button("🔄 Refresh Data (clear cache)"):
+    if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
+        st.session_state.last_refresh = datetime.now()
         st.rerun()
 
-    # Create tabs for different screeners
+    # Create tabs
     screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5 = st.tabs([
         "🤖 AI Swing Scanner", 
         "📉 Swing Pullback", 
@@ -1085,9 +1053,7 @@ def main_app():
         with st.spinner("Fetching swing signals..."):
             swing_data = []
             today = datetime.now().date()
-            total = len(ALL_STOCKS)
-            progress_bar = st.progress(0, text="Scanning stocks...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
+            for name, ticker in list(ALL_STOCKS.items())[:10]:  # Limit to 10 for performance
                 df = get_price_data(ticker)
                 sig = ai_swing_signal(df, name)
                 if sig and sig['Signal'] == 'SWING BUY':
@@ -1098,24 +1064,22 @@ def main_app():
                     else:
                         sig['Fresh'] = ''
                     swing_data.append(sig)
-                progress_bar.progress((idx+1)/total, text=f"Scanned {idx+1}/{total} stocks")
-            progress_bar.empty()
 
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
             def highlight_rows(row):
                 if row.name == 0:
-                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;'] * len(row)
+                    return ['top-pick-row' for _ in range(len(row))]
                 elif row['Fresh'] == '✅ Fresh':
-                    return ['background-color: #cffafe'] * len(row)
+                    return ['background-color: #cffafe' for _ in range(len(row))]
                 elif row['Signal'] == 'SWING BUY':
-                    return ['background-color: #d4edda'] * len(row)
+                    return ['background-color: #d4edda' for _ in range(len(row))]
                 return [''] * len(row)
             
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df.style.apply(highlight_rows, axis=1), use_container_width=True)
         else:
-            st.warning("No swing buy signals found. Try the refresh button above.")
+            st.info("No swing buy signals found at this moment.")
 
     with screener_tab2:
         st.markdown("## 📉 Swing Pullback Screener")
@@ -1123,7 +1087,7 @@ def main_app():
         
         with st.spinner("Scanning for pullback opportunities..."):
             pullback_data = []
-            for name, ticker in ALL_STOCKS.items():
+            for name, ticker in list(ALL_STOCKS.items())[:10]:  # Limit to 10 for performance
                 df = get_price_data(ticker)
                 sig = swing_pullback_signal(df, name)
                 if sig:
@@ -1142,7 +1106,7 @@ def main_app():
         
         with st.spinner("Scanning for breakout opportunities..."):
             breakout_data = []
-            for name, ticker in ALL_STOCKS.items():
+            for name, ticker in list(ALL_STOCKS.items())[:10]:  # Limit to 10 for performance
                 df = get_price_data(ticker)
                 sig = swing_breakout_signal(df, name)
                 if sig:
@@ -1159,15 +1123,12 @@ def main_app():
         st.markdown("## ⚡ Intraday Breakout Screener (5-min)")
         st.caption("Real-time 5-minute breakout: Close > VWAP, RSI > 55, Volume surge, Close > Previous High")
         
-        with st.spinner("Scanning for intraday breakouts (this may take a moment)..."):
+        with st.spinner("Scanning for intraday breakouts..."):
             intraday_breakout_data = []
-            progress_bar = st.progress(0, text="Scanning stocks for intraday breakouts...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
+            for name, ticker in list(ALL_STOCKS.items())[:5]:  # Limit to 5 for performance
                 sig = intraday_breakout_signal(name)
                 if sig:
                     intraday_breakout_data.append(sig)
-                progress_bar.progress((idx+1)/len(ALL_STOCKS))
-            progress_bar.empty()
         
         if intraday_breakout_data:
             intraday_breakout_df = pd.DataFrame(intraday_breakout_data)
@@ -1181,13 +1142,13 @@ def main_app():
         st.caption("AI‑powered intraday picks combining volume surge, technicals, and machine learning. Higher score = stronger signal.")
         
         with st.spinner("Scanning for AI intraday opportunities..."):
-            intraday = intraday_picks()
+            intraday = intraday_picks()[:10]  # Limit to top 10
         
         if intraday:
             intraday_df = pd.DataFrame(intraday)
             def highlight_intraday(row):
                 if row.name == 0:
-                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;'] * len(row)
+                    return ['top-pick-row' for _ in range(len(row))]
                 return [''] * len(row)
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df.style.apply(highlight_intraday, axis=1), use_container_width=True)
@@ -1208,7 +1169,7 @@ def main_app():
             buy_count = 0
             hold_count = 0
             sell_count = 0
-            progress_bar = st.progress(0, text="Analyzing holdings with combined formula...")
+            
             for idx, row in st.session_state.holdings_df.iterrows():
                 name = row['Instrument']
                 ticker = ALL_STOCKS.get(name)
@@ -1253,8 +1214,7 @@ def main_app():
                 total_value += cur_value
                 if not pd.isna(row['Avg Price']):
                     total_cost += row['Qty'] * row['Avg Price']
-                progress_bar.progress((idx+1)/len(st.session_state.holdings_df))
-            progress_bar.empty()
+            
             st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
             st.session_state.total_value = total_value
             st.session_state.total_cost = total_cost
@@ -1267,9 +1227,9 @@ def main_app():
 
         # Priority Ranking
         st.markdown("## 📊 SUPER SCREENER RANKING")
-        st.markdown("Based on combined 19‑factor formula (Original 9 + Magic Formula 10). **SUPER BUY** = top 20% of criteria met (≥15 criteria), BUY = 60-80% (12-14 criteria), HOLD = 30-60% (6-11 criteria), SELL = <30% (0-5 criteria).")
+        st.markdown("Based on combined 19‑factor formula. **SUPER BUY** = ≥15 criteria, BUY = 12-14, HOLD = 6-11, SELL = 0-5.")
 
-        # Debug expander with clear criteria visualization
+        # Debug expander
         with st.expander("🔍 Detailed Criteria Analysis for Your Holdings"):
             st.write("### 📋 Criteria Check for Each Stock")
             st.write("Click on a stock to see which of the 19 criteria are met:")
@@ -1281,13 +1241,10 @@ def main_app():
                     criteria_html = display_criteria_check(st.session_state.criteria_data[selected_stock])
                     st.markdown(criteria_html, unsafe_allow_html=True)
                     
-                    # Show detailed values
                     st.write("### 📊 Detailed Values")
                     stock_debug = st.session_state.debug_df[st.session_state.debug_df['Stock'] == selected_stock].iloc[0]
-                    # Convert to DataFrame for better display
                     debug_dict = stock_debug.to_dict()
                     debug_df = pd.DataFrame(list(debug_dict.items()), columns=['Metric', 'Value'])
-                    # Format numeric values
                     debug_df['Value'] = debug_df['Value'].apply(lambda x: f"{x:.2f}" if isinstance(x, (int, float)) and not pd.isna(x) else ('N/A' if pd.isna(x) else x))
                     st.dataframe(debug_df, use_container_width=True)
             else:
@@ -1355,9 +1312,8 @@ def main_app():
 
         with tab1:
             st.subheader("Your Holdings – Combined Screener Analysis")
-            st.caption("SUPER BUY = ≥15 criteria, BUY = 12-14 criteria, HOLD = 6-11 criteria, SELL = 0-5 criteria. Click Delete to sell stock.")
+            st.caption("SUPER BUY = ≥15 criteria, BUY = 12-14, HOLD = 6-11, SELL = 0-5. Click Delete to sell stock.")
 
-            # Display holdings with delete button
             for idx, row in st.session_state.portfolio_df.iterrows():
                 col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5,1,1,1,1,1,1.2,0.8])
                 with col1:
@@ -1444,7 +1400,6 @@ def main_app():
                 df_hold = df_hold[df_hold['Instrument'].notna() & (df_hold['Instrument'] != '') & (df_hold['Instrument'] != 'NAN')]
                 for col in ['Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']:
                     df_hold[col] = pd.to_numeric(df_hold[col], errors='coerce')
-                original_len = len(df_hold)
                 df_hold = df_hold[df_hold['Instrument'].isin(ALL_STOCKS.keys())]
                 if len(df_hold) == 0:
                     st.error("No stocks from your CSV are in the master list.")
@@ -1490,7 +1445,7 @@ def main_app():
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
-    st.caption("Data sourced from Yahoo Finance. Combined screener based on your 9‑factor + Magic Formula (19 criteria). Multiple screeners for different timeframes.")
+    st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))
 
 # ------------------------------
 # ROUTING
