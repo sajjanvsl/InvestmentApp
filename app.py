@@ -153,12 +153,7 @@ st.markdown("""
         color: #dc3545;
         font-weight: 400;
     }
-    /* Stable blinking animation - CSS only, no re-renders */
-    @keyframes stable-blink {
-        0% { background-color: #fff3cd; border-color: #ffc107; }
-        50% { background-color: #ffe69c; border-color: #ff8c00; }
-        100% { background-color: #fff3cd; border-color: #ffc107; }
-    }
+    /* Top pick badge */
     .top-pick-badge {
         background: #ffc107;
         color: #000;
@@ -169,6 +164,16 @@ st.markdown("""
         display: inline-block;
         margin-bottom: 0.5rem;
         box-shadow: 0 2px 8px rgba(255,193,7,0.4);
+    }
+    /* No stocks message */
+    .no-stocks-message {
+        background: #f8f9fa;
+        border-left: 4px solid #8B0000;
+        padding: 1.5rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+        font-size: 1.1rem;
+        color: #495057;
     }
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
@@ -215,16 +220,6 @@ st.markdown("""
         margin-top: 2rem;
         box-shadow: 0 8px 20px rgba(0,0,0,0.04);
     }
-    /* Priority box */
-    .priority-box {
-        background: white;
-        padding: 2rem;
-        border-radius: 30px;
-        border-left: 6px solid #8B0000;
-        border: 1px solid #dee2e6;
-        margin-bottom: 2rem;
-        box-shadow: 0 8px 20px rgba(0,0,0,0.04);
-    }
     /* Button */
     .stButton button {
         background: white;
@@ -261,11 +256,6 @@ st.markdown("""
     }
     .criteria-row:last-child {
         border-bottom: none;
-    }
-    /* Loading indicator */
-    .stSpinner {
-        text-align: center;
-        padding: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -358,7 +348,6 @@ ALL_STOCKS = {
 # ------------------------------
 @st.cache_resource(ttl=3600)
 def get_cache_timestamp():
-    """Returns a timestamp to help with cache invalidation."""
     return datetime.now().strftime("%Y-%m-%d %H:00:00")
 
 # ------------------------------
@@ -366,7 +355,6 @@ def get_cache_timestamp():
 # ------------------------------
 @st.cache_data(ttl=300, show_spinner=False)
 def get_intraday_data(ticker):
-    """Fetch 5-minute intraday data."""
     try:
         df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
         if df.empty:
@@ -968,6 +956,24 @@ def display_criteria_check(criteria_dict):
     return html
 
 # ------------------------------
+# NO STOCKS MESSAGE FUNCTION
+# ------------------------------
+def no_stocks_message(screener_name, criteria_description):
+    """Display a clear message when no stocks are found."""
+    st.markdown(f"""
+    <div class="no-stocks-message">
+        <strong>📊 {screener_name}</strong><br><br>
+        No stocks match the criteria today.<br><br>
+        <strong>Criteria applied:</strong> {criteria_description}<br><br>
+        This could be due to:<br>
+        • Market being closed<br>
+        • Strict screening criteria<br>
+        • No stocks currently meeting all conditions<br><br>
+        Try the refresh button above or check back later.
+    </div>
+    """, unsafe_allow_html=True)
+
+# ------------------------------
 # MAIN APP
 # ------------------------------
 def main_app():
@@ -1048,11 +1054,9 @@ def main_app():
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
             
-            # Apply styling with CSS strings, not class names
             def highlight_rows(row):
                 styles = [''] * len(row)
                 if row.name == 0:
-                    # Return CSS style string for each cell
                     return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;' for _ in range(len(row))]
                 elif row['Fresh'] == '✅ Fresh':
                     return ['background-color: #cffafe' for _ in range(len(row))]
@@ -1063,7 +1067,10 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df.style.apply(highlight_rows, axis=1), use_container_width=True)
         else:
-            st.info("No swing buy signals found at this moment.")
+            no_stocks_message(
+                "AI Swing Scanner",
+                "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low<br>• AI confidence > 60%"
+            )
 
     with screener_tab2:
         st.markdown("## 📉 Swing Pullback Screener")
@@ -1088,7 +1095,10 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP PULLBACK</span>', unsafe_allow_html=True)
             st.dataframe(pullback_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
-            st.info("No pullback signals at this moment.")
+            no_stocks_message(
+                "Swing Pullback Screener",
+                "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close near 20 EMA (±2%)<br>• RSI between 40-60<br>• Volume > 1.2x average<br>• Price > 100"
+            )
 
     with screener_tab3:
         st.markdown("## 📈 Swing Breakout Screener")
@@ -1113,7 +1123,10 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP BREAKOUT</span>', unsafe_allow_html=True)
             st.dataframe(breakout_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
-            st.info("No breakout signals at this moment.")
+            no_stocks_message(
+                "Swing Breakout Screener",
+                "• Close above 20-day high<br>• Volume > 1.5x average<br>• RSI > 60<br>• 50 EMA > 200 EMA<br>• Price > 100"
+            )
 
     with screener_tab4:
         st.markdown("## ⚡ Intraday Breakout Screener (5-min)")
@@ -1137,7 +1150,10 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY BREAKOUT</span>', unsafe_allow_html=True)
             st.dataframe(intraday_breakout_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
-            st.info("No intraday breakout signals at this moment.")
+            no_stocks_message(
+                "Intraday Breakout Screener (5-min)",
+                "• Close > VWAP<br>• RSI > 55<br>• Volume > 1.5x average<br>• Close > Previous High"
+            )
 
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
@@ -1157,11 +1173,14 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
-            st.info("No AI intraday picks at this moment.")
+            no_stocks_message(
+                "AI Intraday Picks",
+                "• Volume surge > 1.2x<br>• Price > 20 MA<br>• RSI between 30-70<br>• AI confidence > 60%<br>• Combined score ≥ 3"
+            )
 
     st.markdown("---")
 
-    # Holdings Processing
+    # Holdings Processing (rest of the code remains the same)
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
             portfolio_data = []
