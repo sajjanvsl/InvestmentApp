@@ -159,11 +159,6 @@ st.markdown("""
         50% { background-color: #ffe69c; border-color: #ff8c00; }
         100% { background-color: #fff3cd; border-color: #ffc107; }
     }
-    .top-pick-row {
-        animation: stable-blink 2s infinite !important;
-        font-weight: 600 !important;
-        will-change: background-color; /* Optimize for animation */
-    }
     .top-pick-badge {
         background: #ffc107;
         color: #000;
@@ -364,7 +359,7 @@ ALL_STOCKS = {
 @st.cache_resource(ttl=3600)
 def get_cache_timestamp():
     """Returns a timestamp to help with cache invalidation."""
-    return datetime.now().strftime("%Y-%m-%d %H:00:00")  # Cache for 1 hour
+    return datetime.now().strftime("%Y-%m-%d %H:00:00")
 
 # ------------------------------
 # DATA FETCHING WITH CACHE
@@ -478,20 +473,16 @@ def get_fundamental_data(ticker):
         balance_sheet = t.balance_sheet
         cashflow = t.cashflow
 
-        # 5‑year growth
         revenue = safe_get_series(financials, 'Total Revenue')
         sales_growth_5y = cagr(revenue, years=5)
+        sales_growth_3y = cagr(revenue, years=3)
 
         profit = safe_get_series(financials, 'Net Income')
         profit_growth_5y = cagr(profit, years=5)
-
-        # 3‑year growth
-        sales_growth_3y = cagr(revenue, years=3)
         profit_growth_3y = cagr(profit, years=3)
 
         market_cap = info.get('marketCap', 0) / 1e7
 
-        # ROCE
         ebit_series = safe_get_series(financials, 'EBIT')
         ta_series = safe_get_series(balance_sheet, 'Total Assets')
         cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
@@ -505,7 +496,6 @@ def get_fundamental_data(ticker):
                 roce_values.append((ebit / capital) * 100)
         avg_roce = np.mean(roce_values) if roce_values else np.nan
 
-        # ROIC
         total_debt = safe_get_series(balance_sheet, 'Total Debt')
         if len(total_debt) > 0:
             total_debt = total_debt.iloc[0]
@@ -520,36 +510,26 @@ def get_fundamental_data(ticker):
         ebit_latest = ebit_series.iloc[0] if len(ebit_series) > 0 else np.nan
         roic = (ebit_latest / invested_capital) * 100 if invested_capital and invested_capital != 0 else np.nan
 
-        # Debt to Equity
         de_ratio = total_debt / equity if equity and equity != 0 else np.nan
 
-        # Interest Coverage Ratio
         interest = safe_get_series(financials, 'Interest Expense')
         interest = interest.iloc[0] if len(interest) > 0 else np.nan
         icr = ebit_latest / interest if interest and interest != 0 else np.nan
 
-        # Down from 52W high
         current_price = info.get('regularMarketPrice', info.get('currentPrice', np.nan))
         high_52w = info.get('fiftyTwoWeekHigh', np.nan)
         down_from_high = ((high_52w - current_price) / high_52w) * 100 if high_52w and current_price else np.nan
 
-        # Free Cash Flow
         fcf_series = safe_get_series(cashflow, 'Free Cash Flow')
         fcf_cr = fcf_series / 1e7
         avg_fcf = fcf_cr.iloc[:3].mean() if len(fcf_cr) > 0 else np.nan
 
-        # Promoter holding
         promoter = info.get('heldPercentInsiders', np.nan)
         if not pd.isna(promoter):
             promoter = promoter * 100
 
-        # Book Value
         book_value = info.get('bookValue', np.nan)
-
-        # Net Profit
         net_profit = profit.iloc[0] / 1e7 if len(profit) > 0 else np.nan
-
-        # Earnings Yield
         pe = info.get('trailingPE', np.nan)
         ey = (1 / pe) * 100 if not pd.isna(pe) and pe > 0 else np.nan
 
@@ -1048,12 +1028,12 @@ def main_app():
 
     with screener_tab1:
         st.markdown("## 🤖 AI Swing Trading Scanner")
-        st.caption("AI-powered swing signals combining technical rules with RandomForest. Green highlight = SWING BUY. 'Fresh' tag = first appearance in 5 days. **Top pick blinks!**")
+        st.caption("AI-powered swing signals combining technical rules with RandomForest. **Top pick highlighted in yellow!**")
 
         with st.spinner("Fetching swing signals..."):
             swing_data = []
             today = datetime.now().date()
-            for name, ticker in list(ALL_STOCKS.items())[:10]:  # Limit to 10 for performance
+            for name, ticker in list(ALL_STOCKS.items())[:10]:
                 df = get_price_data(ticker)
                 sig = ai_swing_signal(df, name)
                 if sig and sig['Signal'] == 'SWING BUY':
@@ -1067,14 +1047,18 @@ def main_app():
 
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
+            
+            # Apply styling with CSS strings, not class names
             def highlight_rows(row):
+                styles = [''] * len(row)
                 if row.name == 0:
-                    return ['top-pick-row' for _ in range(len(row))]
+                    # Return CSS style string for each cell
+                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;' for _ in range(len(row))]
                 elif row['Fresh'] == '✅ Fresh':
                     return ['background-color: #cffafe' for _ in range(len(row))]
                 elif row['Signal'] == 'SWING BUY':
                     return ['background-color: #d4edda' for _ in range(len(row))]
-                return [''] * len(row)
+                return styles
             
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df.style.apply(highlight_rows, axis=1), use_container_width=True)
@@ -1083,11 +1067,11 @@ def main_app():
 
     with screener_tab2:
         st.markdown("## 📉 Swing Pullback Screener")
-        st.caption("High probability pullback opportunities: Close > 50 EMA, 20 EMA > 50 EMA, Close near 20 EMA, RSI 40-60, Volume surge, Price > 100")
+        st.caption("High probability pullback opportunities")
         
         with st.spinner("Scanning for pullback opportunities..."):
             pullback_data = []
-            for name, ticker in list(ALL_STOCKS.items())[:10]:  # Limit to 10 for performance
+            for name, ticker in list(ALL_STOCKS.items())[:10]:
                 df = get_price_data(ticker)
                 sig = swing_pullback_signal(df, name)
                 if sig:
@@ -1095,18 +1079,24 @@ def main_app():
         
         if pullback_data:
             pullback_df = pd.DataFrame(pullback_data)
+            
+            def highlight_top(row):
+                if row.name == 0:
+                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;' for _ in range(len(row))]
+                return [''] * len(row)
+            
             st.markdown('<span class="top-pick-badge">⭐ TOP PULLBACK</span>', unsafe_allow_html=True)
-            st.dataframe(pullback_df, use_container_width=True)
+            st.dataframe(pullback_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
             st.info("No pullback signals at this moment.")
 
     with screener_tab3:
         st.markdown("## 📈 Swing Breakout Screener")
-        st.caption("Breakout opportunities: Close above 20-day high, Volume surge, RSI > 60, 50 EMA > 200 EMA, Price > 100")
+        st.caption("Breakout opportunities")
         
         with st.spinner("Scanning for breakout opportunities..."):
             breakout_data = []
-            for name, ticker in list(ALL_STOCKS.items())[:10]:  # Limit to 10 for performance
+            for name, ticker in list(ALL_STOCKS.items())[:10]:
                 df = get_price_data(ticker)
                 sig = swing_breakout_signal(df, name)
                 if sig:
@@ -1114,44 +1104,58 @@ def main_app():
         
         if breakout_data:
             breakout_df = pd.DataFrame(breakout_data)
+            
+            def highlight_top(row):
+                if row.name == 0:
+                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;' for _ in range(len(row))]
+                return [''] * len(row)
+            
             st.markdown('<span class="top-pick-badge">⭐ TOP BREAKOUT</span>', unsafe_allow_html=True)
-            st.dataframe(breakout_df, use_container_width=True)
+            st.dataframe(breakout_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
             st.info("No breakout signals at this moment.")
 
     with screener_tab4:
         st.markdown("## ⚡ Intraday Breakout Screener (5-min)")
-        st.caption("Real-time 5-minute breakout: Close > VWAP, RSI > 55, Volume surge, Close > Previous High")
+        st.caption("Real-time 5-minute breakout signals")
         
         with st.spinner("Scanning for intraday breakouts..."):
             intraday_breakout_data = []
-            for name, ticker in list(ALL_STOCKS.items())[:5]:  # Limit to 5 for performance
+            for name, ticker in list(ALL_STOCKS.items())[:5]:
                 sig = intraday_breakout_signal(name)
                 if sig:
                     intraday_breakout_data.append(sig)
         
         if intraday_breakout_data:
             intraday_breakout_df = pd.DataFrame(intraday_breakout_data)
+            
+            def highlight_top(row):
+                if row.name == 0:
+                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;' for _ in range(len(row))]
+                return [''] * len(row)
+            
             st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY BREAKOUT</span>', unsafe_allow_html=True)
-            st.dataframe(intraday_breakout_df, use_container_width=True)
+            st.dataframe(intraday_breakout_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
             st.info("No intraday breakout signals at this moment.")
 
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
-        st.caption("AI‑powered intraday picks combining volume surge, technicals, and machine learning. Higher score = stronger signal.")
+        st.caption("AI‑powered intraday picks. Higher score = stronger signal.")
         
         with st.spinner("Scanning for AI intraday opportunities..."):
-            intraday = intraday_picks()[:10]  # Limit to top 10
+            intraday = intraday_picks()[:10]
         
         if intraday:
             intraday_df = pd.DataFrame(intraday)
-            def highlight_intraday(row):
+            
+            def highlight_top(row):
                 if row.name == 0:
-                    return ['top-pick-row' for _ in range(len(row))]
+                    return ['background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;' for _ in range(len(row))]
                 return [''] * len(row)
+            
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
-            st.dataframe(intraday_df.style.apply(highlight_intraday, axis=1), use_container_width=True)
+            st.dataframe(intraday_df.style.apply(highlight_top, axis=1), use_container_width=True)
         else:
             st.info("No AI intraday picks at this moment.")
 
