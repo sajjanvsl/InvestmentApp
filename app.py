@@ -78,6 +78,16 @@ st.markdown("""
         font-weight: 700;
     }
     /* Tags */
+    .super-buy-tag {
+        background: #8B0000;
+        color: white;
+        padding: 0.25rem 0.8rem;
+        border-radius: 30px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: inline-block;
+        box-shadow: 0 2px 8px rgba(139,0,0,0.3);
+    }
     .buy-tag {
         background: #d4edda;
         color: #155724;
@@ -105,16 +115,6 @@ st.markdown("""
         font-weight: 600;
         display: inline-block;
     }
-    .super-buy-tag {
-        background: #8B0000;
-        color: white;
-        padding: 0.25rem 0.8rem;
-        border-radius: 30px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-        box-shadow: 0 2px 8px rgba(139,0,0,0.3);
-    }
     .fresh-tag {
         background: #cffafe;
         color: #0e7490;
@@ -124,6 +124,15 @@ st.markdown("""
         font-weight: 600;
         display: inline-block;
         margin-left: 0.5rem;
+    }
+    /* Criteria met indicator */
+    .criteria-met {
+        color: #28a745;
+        font-weight: 600;
+    }
+    .criteria-not-met {
+        color: #dc3545;
+        font-weight: 400;
     }
     /* Blinking animation for top picks */
     @keyframes blink {
@@ -234,6 +243,23 @@ st.markdown("""
         border: none;
         height: 1px;
         background: linear-gradient(90deg, transparent, #adb5bd, transparent);
+    }
+    /* Criteria table */
+    .criteria-table {
+        background: white;
+        border-radius: 16px;
+        padding: 1rem;
+        margin: 1rem 0;
+        border: 1px solid #dee2e6;
+    }
+    .criteria-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .criteria-row:last-child {
+        border-bottom: none;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -675,34 +701,83 @@ def ai_swing_signal(df, name):
         return None
 
 # ------------------------------
-# INTRADAY PICKS
+# AI INTRADAY PICKS
 # ------------------------------
-def intraday_picks():
-    picks = []
-    for name, ticker in ALL_STOCKS.items():
-        df = get_price_data(ticker)
-        if df.empty or len(df) < 20:
-            continue
+def ai_intraday_signal(df, name):
+    """Enhanced intraday pick with AI confirmation."""
+    if df.empty or len(df) < 20:
+        return None
+    try:
         close = df['Close'].astype(float)
         volume = df['Volume']
+        
+        # Technical indicators
+        rsi = RSIIndicator(close).rsi()
+        current_rsi = rsi.iloc[-1]
+        ma20 = close.rolling(20).mean().iloc[-1]
         avg_vol = volume.rolling(20).mean().iloc[-1]
         if avg_vol == 0:
-            continue
+            return None
         vol_ratio = volume.iloc[-1] / avg_vol
-        ma20 = close.rolling(20).mean().iloc[-1]
-        if vol_ratio > 1.2 or close.iloc[-1] > ma20:
-            entry = close.iloc[-1]
+        current_price = close.iloc[-1]
+        
+        # Rule-based conditions
+        rule_score = 0
+        if vol_ratio > 1.5:
+            rule_score += 2
+        elif vol_ratio > 1.2:
+            rule_score += 1
+        
+        if current_price > ma20:
+            rule_score += 1
+        
+        if current_rsi < 70 and current_rsi > 30:
+            rule_score += 1
+        
+        # AI confidence (simple model)
+        ai_confidence = 0.0
+        if SKLEARN_AVAILABLE and len(df) > 50:
+            model, scaler = train_simple_model(df)
+            if model is not None and scaler is not None:
+                last_rsi = current_rsi
+                last_ma20 = ma20
+                last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
+                last_high_low = (df['High'].iloc[-1] - df['Low'].iloc[-1]) / current_price
+                last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
+                features = np.array([[last_rsi, last_close_ma20, last_high_low, last_vol_change]])
+                features_scaled = scaler.transform(features)
+                pred_proba = model.predict_proba(features_scaled)[0]
+                ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
+        
+        # Combined score (rule_score + AI)
+        combined_score = rule_score + (ai_confidence * 3)  # AI weight
+        
+        if combined_score >= 3:
+            entry = current_price
             target = entry * 1.02
             stop = entry * 0.98
-            picks.append({
+            return {
                 'Stock': name,
                 'Entry': round(entry, 2),
                 'Target': round(target, 2),
                 'Stop Loss': round(stop, 2),
                 'Volume Surge': f"{vol_ratio:.1f}x",
-                'Price vs 20MA': 'Above' if close.iloc[-1] > ma20 else 'Below'
-            })
-    return picks
+                'RSI': round(current_rsi, 1),
+                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
+                'Score': round(combined_score, 1)
+            }
+        return None
+    except Exception:
+        return None
+
+def intraday_picks():
+    picks = []
+    for name, ticker in ALL_STOCKS.items():
+        df = get_price_data(ticker)
+        sig = ai_intraday_signal(df, name)
+        if sig:
+            picks.append(sig)
+    return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
 # LOGIN PAGE
@@ -741,10 +816,23 @@ def show_login():
                     st.error("Username not found")
 
 # ------------------------------
+# CRITERIA VISUALIZATION FUNCTION
+# ------------------------------
+def display_criteria_check(criteria_dict):
+    """Display criteria with checkmarks."""
+    html = '<div class="criteria-table">'
+    for criterion, met in criteria_dict.items():
+        status = '✅' if met else '❌'
+        color = 'criteria-met' if met else 'criteria-not-met'
+        html += f'<div class="criteria-row"><span>{criterion}</span><span class="{color}">{status}</span></div>'
+    html += '</div>'
+    return html
+
+# ------------------------------
 # MAIN APP
 # ------------------------------
 def main_app():
-    # Session state for holdings
+    # Session state for holdings - initialize all counters
     if 'holdings_df' not in st.session_state:
         st.session_state.holdings_df = load_holdings()
     if 'portfolio_df' not in st.session_state:
@@ -753,6 +841,8 @@ def main_app():
         st.session_state.total_value = 0
     if 'total_cost' not in st.session_state:
         st.session_state.total_cost = 0
+    if 'super_buy_count' not in st.session_state:
+        st.session_state.super_buy_count = 0
     if 'buy_count' not in st.session_state:
         st.session_state.buy_count = 0
     if 'hold_count' not in st.session_state:
@@ -765,6 +855,8 @@ def main_app():
         st.session_state.sold_history = load_sold()
     if 'debug_df' not in st.session_state:
         st.session_state.debug_df = None
+    if 'criteria_data' not in st.session_state:
+        st.session_state.criteria_data = {}
 
     # Header with logout
     col1, col2 = st.columns([6, 1])
@@ -822,10 +914,10 @@ def main_app():
     else:
         st.warning("No swing buy signals found. Try the refresh button above.")
 
-    # Intraday Picks Section
-    st.markdown("## ⚡ Intraday Stock Picks")
-    st.caption("Stocks with volume surge >1.2x OR price above 20MA. Targets: +2%, Stop: -2%. **Top pick blinks!**")
-    with st.spinner("Scanning for intraday opportunities..."):
+    # Intraday Picks Section (with AI)
+    st.markdown("## ⚡ AI Intraday Stock Picks")
+    st.caption("AI‑powered intraday picks combining volume surge, technicals, and machine learning. Higher score = stronger signal. **Top pick blinks!**")
+    with st.spinner("Scanning for intraday opportunities with AI..."):
         intraday = intraday_picks()
     if intraday:
         intraday_df = pd.DataFrame(intraday)
@@ -845,12 +937,13 @@ def main_app():
         if st.session_state.portfolio_df is None:
             portfolio_data = []
             debug_data = []
+            criteria_data = {}
             total_value = 0
             total_cost = 0
+            super_buy_count = 0
             buy_count = 0
             hold_count = 0
             sell_count = 0
-            super_buy_count = 0
             progress_bar = st.progress(0, text="Analyzing holdings with combined formula...")
             for idx, row in st.session_state.holdings_df.iterrows():
                 name = row['Instrument']
@@ -892,6 +985,7 @@ def main_app():
                     'Stock': name,
                     **values
                 })
+                criteria_data[name] = criteria
                 total_value += cur_value
                 if not pd.isna(row['Avg Price']):
                     total_cost += row['Qty'] * row['Avg Price']
@@ -905,32 +999,32 @@ def main_app():
             st.session_state.hold_count = hold_count
             st.session_state.sell_count = sell_count
             st.session_state.debug_df = pd.DataFrame(debug_data)
+            st.session_state.criteria_data = criteria_data
 
         # Priority Ranking
         st.markdown("## 📊 SUPER SCREENER RANKING")
-        st.markdown("Based on combined 19‑factor formula (Original 9 + Magic Formula 10). **SUPER BUY** = top 20% of criteria met.")
+        st.markdown("Based on combined 19‑factor formula (Original 9 + Magic Formula 10). **SUPER BUY** = top 20% of criteria met (≥15 criteria), BUY = 60-80% (12-14 criteria), HOLD = 30-60% (6-11 criteria), SELL = <30% (0-5 criteria).")
 
-        # Debug expander
-        with st.expander("🔍 Debug: Fundamental Values for Your Holdings"):
-            st.write("These are the actual computed values for each stock. Compare with the 19 criteria to see why a stock is not a SUPER BUY.")
-            if st.session_state.debug_df is not None and not st.session_state.debug_df.empty:
-                st.dataframe(st.session_state.debug_df.style.format({
-                    'Sales Gr 3Y': '{:.2f}%',
-                    'Profit Gr 3Y': '{:.2f}%',
-                    'Sales Gr 5Y': '{:.2f}%',
-                    'Profit Gr 5Y': '{:.2f}%',
-                    'Mkt Cap': '₹{:.2f} Cr',
-                    'ROCE': '{:.2f}%',
-                    'ROIC': '{:.2f}%',
-                    'D/E': '{:.2f}',
-                    'ICR': '{:.2f}',
-                    'Down 52W': '{:.2f}%',
-                    'Avg FCF': '₹{:.2f} Cr',
-                    'Promoter': '{:.2f}%',
-                    'Book Value': '₹{:.2f}',
-                    'Net Profit': '₹{:.2f} Cr',
-                    'EY': '{:.2f}%'
-                }, na_rep='-'), use_container_width=True)
+        # Debug expander with clear criteria visualization
+        with st.expander("🔍 Detailed Criteria Analysis for Your Holdings"):
+            st.write("### 📋 Criteria Check for Each Stock")
+            st.write("Click on a stock to see which of the 19 criteria are met:")
+            
+            if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
+                selected_stock = st.selectbox("Select stock to view criteria", st.session_state.portfolio_df['Stock'].tolist())
+                if selected_stock in st.session_state.criteria_data:
+                    st.markdown(f"#### {selectedStock}")
+                    criteria_html = display_criteria_check(st.session_state.criteria_data[selected_stock])
+                    st.markdown(criteria_html, unsafe_allow_html=True)
+                    
+                    # Show detailed values
+                    st.write("### 📊 Detailed Values")
+                    stock_debug = st.session_state.debug_df[st.session_state.debug_df['Stock'] == selected_stock].iloc[0]
+                    debug_values = pd.DataFrame([stock_debug]).T
+                    debug_values.columns = ['Value']
+                    st.dataframe(debug_values.style.format({
+                        'Value': '{:.2f}' if debug_values['Value'].dtype in ['float64', 'int64'] else '{}'
+                    }), use_container_width=True)
             else:
                 st.info("No debug data available.")
 
@@ -996,7 +1090,7 @@ def main_app():
 
         with tab1:
             st.subheader("Your Holdings – Combined Screener Analysis")
-            st.caption("SUPER BUY = top 20% of 19 criteria met, BUY = 60-80%, HOLD = 30-60%, SELL = <30%. Click Delete to sell stock.")
+            st.caption("SUPER BUY = ≥15 criteria, BUY = 12-14 criteria, HOLD = 6-11 criteria, SELL = 0-5 criteria. Click Delete to sell stock.")
 
             # Display holdings with delete button
             for idx, row in st.session_state.portfolio_df.iterrows():
