@@ -232,6 +232,15 @@ st.markdown("""
     .criteria-row:last-child {
         border-bottom: none;
     }
+    /* Debug info */
+    .debug-info {
+        background: #e9ecef;
+        padding: 1rem;
+        border-radius: 8px;
+        font-family: monospace;
+        font-size: 0.9rem;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -319,27 +328,49 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING WITH CACHE
+# DEBUG DATA FETCHING
 # ------------------------------
-@st.cache_data(ttl=300, show_spinner=False)
-def get_intraday_data(ticker):
+def debug_data_fetch(ticker):
+    """Test data fetching for a single ticker and return status."""
     try:
-        df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
+        df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if df.empty:
-            return pd.DataFrame()
-        df.dropna(inplace=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        return df
-    except Exception:
-        return pd.DataFrame()
+            return "❌ No data"
+        return f"✅ Data shape: {df.shape}, Last close: {df['Close'].iloc[-1]:.2f}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
 
+# ------------------------------
+# DATA FETCHING WITH IMPROVED RETRIES
+# ------------------------------
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_price_data(ticker):
-    max_retries = 2
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
+            if df.empty:
+                if attempt == max_retries - 1:
+                    # Don't show warning here to avoid cluttering, just return empty
+                    return pd.DataFrame()
+                time.sleep(2)
+                continue
+            df.dropna(inplace=True)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            return df
+        except Exception as e:
+            if attempt == max_retries - 1:
+                return pd.DataFrame()
+            time.sleep(2)
+    return pd.DataFrame()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_intraday_data(ticker):
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
             if df.empty:
                 return pd.DataFrame()
             df.dropna(inplace=True)
@@ -583,31 +614,4 @@ def train_simple_model(df):
         return None, None
     try:
         close = df['Close'].astype(float)
-        df_model = df.copy()
-        df_model['RSI'] = RSIIndicator(close).rsi()
-        df_model['MA20'] = close.rolling(20).mean()
-        df_model['Close_MA20'] = close / df_model['MA20']
-        df_model['High_Low'] = (df_model['High'] - df_model['Low']) / close
-        df_model['Volume_Change'] = df_model['Volume'].pct_change()
-        df_model['Target'] = (close.shift(-5) > close * 1.05).astype(int)
-        df_model.dropna(inplace=True)
-        if len(df_model) < 50:
-            return None, None
-        
-        feature_names = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
-        X = df_model[feature_names]
-        y = df_model['Target']
-        
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        # Store feature names to avoid warning later
-        scaler.feature_names_in_ = feature_names
-        
-        model = RandomForestClassifier(n_estimators=30, max_depth=4, random_state=42)
-        model.fit(X_scaled, y)
-        
-        return model, scaler
-    except Exception:
-        return None, None
-
-# -----------------------
+ 
