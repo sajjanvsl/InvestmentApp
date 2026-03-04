@@ -330,7 +330,7 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DEBUG DATA FETCHING
+# DEBUG DATA FETCHING (FIXED)
 # ------------------------------
 def debug_data_fetch(ticker):
     """Test data fetching for a single ticker and return status."""
@@ -338,12 +338,21 @@ def debug_data_fetch(ticker):
         df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if df.empty:
             return "❌ No data"
-        return f"✅ Data shape: {df.shape}, Last close: {df['Close'].iloc[-1]:.2f}"
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        # Ensure Close is a Series (squeeze if needed)
+        close = df['Close'].squeeze()
+        if isinstance(close, pd.Series):
+            last_close = close.iloc[-1]
+        else:
+            last_close = close  # scalar
+        return f"✅ Data shape: {df.shape}, Last close: {last_close:.2f}"
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
 # ------------------------------
-# DATA FETCHING WITH IMPROVED RETRIES
+# DATA FETCHING WITH IMPROVED RETRIES AND FLATTENING
 # ------------------------------
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_price_data(ticker):
@@ -356,9 +365,10 @@ def get_price_data(ticker):
                     return pd.DataFrame()
                 time.sleep(2)
                 continue
-            df.dropna(inplace=True)
+            # Flatten MultiIndex columns if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
+            df.dropna(inplace=True)
             return df
         except Exception:
             if attempt == max_retries - 1:
@@ -374,9 +384,10 @@ def get_intraday_data(ticker):
             df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
             if df.empty:
                 return pd.DataFrame()
-            df.dropna(inplace=True)
+            # Flatten MultiIndex columns if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
+            df.dropna(inplace=True)
             return df
         except Exception:
             if attempt == max_retries - 1:
@@ -1282,7 +1293,12 @@ def main_app():
                 price_df = get_price_data(ticker)
                 if price_df.empty:
                     continue
-                current_price = price_df['Close'].iloc[-1]
+                # Ensure we get scalar close price
+                close_series = price_df['Close'].squeeze()
+                if isinstance(close_series, pd.Series):
+                    current_price = close_series.iloc[-1]
+                else:
+                    current_price = close_series
                 cur_value = row['Qty'] * current_price
                 if not pd.isna(row['Avg Price']):
                     pnl = row['Qty'] * (current_price - row['Avg Price'])
