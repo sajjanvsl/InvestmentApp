@@ -834,7 +834,10 @@ def ai_swing_signal(df, name):
     except Exception:
         return None
 
-def ai_intraday_signal(df, name):
+# ------------------------------
+# AI INTRADAY BUY SIGNAL (existing)
+# ------------------------------
+def ai_intraday_buy_signal(df, name):
     if df.empty or len(df) < 20:
         return None
     try:
@@ -849,7 +852,7 @@ def ai_intraday_signal(df, name):
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
 
-        rule_score = 0
+        # Conditions for buy
         vol_condition = vol_ratio > 1.2
         price_ma_condition = current_price > ma20
         rsi_condition = 30 < current_rsi < 70
@@ -869,10 +872,10 @@ def ai_intraday_signal(df, name):
                 pred_proba = model.predict_proba(features_scaled)[0]
                 ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
 
-        combined_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
-                         (1 if price_ma_condition else 0) + \
-                         (1 if rsi_condition else 0) + \
-                         (ai_confidence * 3)
+        rule_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
+                     (1 if price_ma_condition else 0) + \
+                     (1 if rsi_condition else 0)
+        combined_score = rule_score + (ai_confidence * 3)
 
         if combined_score >= 3:
             entry = current_price
@@ -892,13 +895,82 @@ def ai_intraday_signal(df, name):
     except Exception:
         return None
 
+# ------------------------------
+# AI INTRADAY SELL SIGNAL (new)
+# ------------------------------
+def ai_intraday_sell_signal(df, name):
+    if df.empty or len(df) < 20:
+        return None
+    try:
+        close = df['Close'].astype(float)
+        volume = df['Volume']
+        rsi = RSIIndicator(close).rsi()
+        current_rsi = rsi.iloc[-1]
+        ma20 = close.rolling(20).mean().iloc[-1]
+        avg_vol = volume.rolling(20).mean().iloc[-1]
+        if avg_vol == 0:
+            return None
+        vol_ratio = volume.iloc[-1] / avg_vol
+        current_price = close.iloc[-1]
+
+        # Conditions for sell: volume surge, price below 20 MA, RSI > 70 (overbought)
+        vol_condition = vol_ratio > 1.2
+        price_ma_condition = current_price < ma20
+        rsi_condition = current_rsi > 70
+
+        ai_confidence = 0.0
+        if SKLEARN_AVAILABLE and len(df) > 50:
+            model, scaler = train_simple_model(df)
+            if model is not None and scaler is not None:
+                last_rsi = current_rsi
+                last_ma20 = ma20
+                last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
+                last_high_low = (df['High'].iloc[-1] - df['Low'].iloc[-1]) / current_price
+                last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
+                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
+                                           columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
+                features_scaled = scaler.transform(features_df)
+                pred_proba = model.predict_proba(features_scaled)[0]
+                ai_confidence = pred_proba[0] if len(pred_proba) > 1 else 0  # probability of downtrend
+
+        rule_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
+                     (1 if price_ma_condition else 0) + \
+                     (1 if rsi_condition else 0)
+        combined_score = rule_score + (ai_confidence * 3)
+
+        if combined_score >= 3:
+            entry = current_price
+            target = entry * 0.98  # 2% downside target
+            stop = entry * 1.02    # stop above
+            return {
+                'Stock': name,
+                'Entry': round(entry, 2),
+                'Target': round(target, 2),
+                'Stop Loss': round(stop, 2),
+                'Volume Surge': f"{vol_ratio:.1f}x",
+                'RSI': round(current_rsi, 1),
+                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
+                'Score': round(combined_score, 1)
+            }
+        return None
+    except Exception:
+        return None
+
+# ------------------------------
+# Combined intraday picks (BUY + SELL)
+# ------------------------------
 def intraday_picks():
     picks = []
     for name, ticker in ALL_STOCKS.items():
         df = get_price_data(ticker)
-        sig = ai_intraday_signal(df, name)
-        if sig:
-            picks.append(sig)
+        buy_sig = ai_intraday_buy_signal(df, name)
+        if buy_sig:
+            buy_sig['Signal'] = 'BUY'
+            picks.append(buy_sig)
+        sell_sig = ai_intraday_sell_signal(df, name)
+        if sell_sig:
+            sell_sig['Signal'] = 'SELL'
+            picks.append(sell_sig)
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
@@ -1153,25 +1225,25 @@ def main_app():
         else:
             no_stocks_message("Intraday Breakout Screener (5-min)", "• Close > VWAP<br>• RSI > 55<br>• Volume > 1.5× average<br>• Close > Previous High")
 
-    # ----- Tab 5: AI Intraday Picks -----
+    # ----- Tab 5: AI Intraday Picks (BUY & SELL) -----
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
-        st.caption("AI‑powered intraday picks. Higher score = stronger signal.")
+        st.caption("AI‑powered intraday picks for both BUY and SELL opportunities. Higher score = stronger signal.")
         with st.spinner("Scanning for AI intraday opportunities..."):
-            intraday = intraday_picks()[:10]
+            intraday = intraday_picks()[:20]  # increased limit to show both sides
         if intraday:
             intraday_df = pd.DataFrame(intraday)
-            display_cols = ['Stock', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'AI Conf', 'Score']
+            display_cols = ['Stock', 'Signal', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'AI Conf', 'Score']
             intraday_df = intraday_df[[col for col in display_cols if col in intraday_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df, width='stretch')
         else:
-            no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price > 20 MA<br>• RSI between 30-70<br>• AI confidence > 60%<br>• Combined score ≥ 3")
+            no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (with editable table, Sl.No, blue headers, center alignment)
+    # HOLDINGS SECTION (with editable table, Sl.No, blue headers)
     # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
@@ -1315,14 +1387,10 @@ def main_app():
 
         # Prepare the DataFrame for editing with Sl.No column
         if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
-            # Create a copy with the columns we want to display/edit
             edit_df = st.session_state.portfolio_df.copy()
-            # Add serial number column
             edit_df.insert(0, 'Sl.No', range(1, len(edit_df) + 1))
-            # Add a 'Delete' column for selection (default False)
             edit_df['Delete'] = False
 
-            # Configure column settings with center alignment
             column_config = {
                 'Sl.No': st.column_config.NumberColumn('Sl.No', disabled=True),
                 'Stock': st.column_config.TextColumn('Stock', disabled=True),
@@ -1338,7 +1406,6 @@ def main_app():
                 'Delete': st.column_config.CheckboxColumn('Delete')
             }
 
-            # Display the editable table with blue header (via CSS class)
             st.markdown('<div class="holdings-table">', unsafe_allow_html=True)
             edited_df = st.data_editor(
                 edit_df,
@@ -1349,7 +1416,6 @@ def main_app():
             )
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Check for changes (Qty or Avg Price) and update holdings_df
             changes_made = False
             for col in ['Qty', 'Avg Price']:
                 if col in edited_df.columns and not edited_df[col].equals(edit_df[col]):
@@ -1357,7 +1423,6 @@ def main_app():
                     break
 
             if changes_made:
-                # Update holdings_df with new values (skip Sl.No column)
                 for idx, row in edited_df.iterrows():
                     stock_name = row['Stock']
                     mask = st.session_state.holdings_df['Instrument'] == stock_name
@@ -1365,17 +1430,15 @@ def main_app():
                         st.session_state.holdings_df.loc[mask, 'Qty'] = row['Qty']
                         st.session_state.holdings_df.loc[mask, 'Avg Price'] = row['Avg Price']
                 save_holdings(st.session_state.holdings_df)
-                st.session_state.portfolio_df = None  # Force recompute
+                st.session_state.portfolio_df = None
                 st.rerun()
 
-            # Handle deletions
             selected_for_deletion = edited_df[edited_df['Delete'] == True]
             if not selected_for_deletion.empty:
                 st.warning(f"{len(selected_for_deletion)} stock(s) selected for deletion.")
                 if st.button("🗑️ Delete Selected", type="primary"):
                     for _, row in selected_for_deletion.iterrows():
                         stock_name = row['Stock']
-                        # Add to sold history
                         sold_entry = {
                             'Stock': stock_name,
                             'Qty': row['Qty'],
@@ -1385,14 +1448,12 @@ def main_app():
                             'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
                         }
                         st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
-                        # Remove from holdings
                         st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != stock_name].reset_index(drop=True)
                     save_sold(st.session_state.sold_history)
                     save_holdings(st.session_state.holdings_df)
                     st.session_state.portfolio_df = None
                     st.rerun()
 
-            # Display sold history
             st.markdown("#### Sold History")
             if not st.session_state.sold_history.empty:
                 st.dataframe(st.session_state.sold_history, width='stretch')
@@ -1480,4 +1541,3 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
-
