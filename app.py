@@ -740,6 +740,7 @@ def swing_breakout_signal(df, name):
     except Exception:
         return None
 
+# ========== NEW: Intraday Breakout & Breakdown Screener ==========
 def intraday_breakout_breakdown_signal(name):
     """Intraday Breakout/Breakdown Screener using 5-min data."""
     ticker = ALL_STOCKS[name]
@@ -766,22 +767,10 @@ def intraday_breakout_breakdown_signal(name):
         current_vwap = vwap.iloc[-1]
 
         # Conditions for Breakout (up)
-        breakout_cond = (
-            current_close > current_vwap and
+        if (current_close > current_vwap and
             current_rsi > 55 and
             current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
-            current_close > prev_high
-        )
-
-        # Conditions for Breakdown (down)
-        breakdown_cond = (
-            current_close < current_vwap and
-            current_rsi < 45 and
-            current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
-            current_close < prev_low
-        )
-
-        if breakout_cond:
+            current_close > prev_high):
             return {
                 'Stock': name,
                 'Type': 'BREAKOUT',
@@ -793,7 +782,11 @@ def intraday_breakout_breakdown_signal(name):
                 'Target': round(current_close * 1.02, 2),
                 'Stop Loss': round(current_vwap * 0.99, 2)
             }
-        elif breakdown_cond:
+        # Conditions for Breakdown (down)
+        elif (current_close < current_vwap and
+              current_rsi < 45 and
+              current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
+              current_close < prev_low):
             return {
                 'Stock': name,
                 'Type': 'BREAKDOWN',
@@ -808,6 +801,7 @@ def intraday_breakout_breakdown_signal(name):
         return None
     except Exception:
         return None
+# ==================================================================
 
 def ai_swing_signal(df, name):
     if df.empty or len(df) < 50:
@@ -862,9 +856,6 @@ def ai_swing_signal(df, name):
     except Exception:
         return None
 
-# ------------------------------
-# AI INTRADAY BUY SIGNAL (existing)
-# ------------------------------
 def ai_intraday_buy_signal(df, name):
     if df.empty or len(df) < 20:
         return None
@@ -880,7 +871,6 @@ def ai_intraday_buy_signal(df, name):
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
 
-        # Conditions for buy
         vol_condition = vol_ratio > 1.2
         price_ma_condition = current_price > ma20
         rsi_condition = 30 < current_rsi < 70
@@ -923,9 +913,6 @@ def ai_intraday_buy_signal(df, name):
     except Exception:
         return None
 
-# ------------------------------
-# AI INTRADAY SELL SIGNAL (new)
-# ------------------------------
 def ai_intraday_sell_signal(df, name):
     if df.empty or len(df) < 20:
         return None
@@ -941,7 +928,6 @@ def ai_intraday_sell_signal(df, name):
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
 
-        # Conditions for sell: volume surge, price below 20 MA, RSI > 70 (overbought)
         vol_condition = vol_ratio > 1.2
         price_ma_condition = current_price < ma20
         rsi_condition = current_rsi > 70
@@ -959,7 +945,7 @@ def ai_intraday_sell_signal(df, name):
                                            columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
                 features_scaled = scaler.transform(features_df)
                 pred_proba = model.predict_proba(features_scaled)[0]
-                ai_confidence = pred_proba[0] if len(pred_proba) > 1 else 0  # probability of downtrend
+                ai_confidence = pred_proba[0] if len(pred_proba) > 1 else 0
 
         rule_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
                      (1 if price_ma_condition else 0) + \
@@ -968,8 +954,8 @@ def ai_intraday_sell_signal(df, name):
 
         if combined_score >= 3:
             entry = current_price
-            target = entry * 0.98  # 2% downside target
-            stop = entry * 1.02    # stop above
+            target = entry * 0.98
+            stop = entry * 1.02
             return {
                 'Stock': name,
                 'Entry': round(entry, 2),
@@ -984,9 +970,6 @@ def ai_intraday_sell_signal(df, name):
     except Exception:
         return None
 
-# ------------------------------
-# Combined intraday picks (BUY + SELL)
-# ------------------------------
 def intraday_picks():
     picks = []
     for name, ticker in ALL_STOCKS.items():
@@ -1116,7 +1099,7 @@ def main_app():
         "🤖 AI Swing Scanner", 
         "📉 Swing Pullback", 
         "📈 Fundamental Breakout",
-        "⚡ Intraday Breakout (5-min)",
+        "⚡ Intraday Breakout & Breakdown (5-min)",
         "🤖 AI Intraday Picks"
     ])
 
@@ -1230,42 +1213,42 @@ def main_app():
         else:
             no_stocks_message("Fundamental Breakout Screener", "• Price > 1000<br>• Mkt Cap > 1000 Cr<br>• Sales growth > 50%<br>• Profit growth > 50%<br>• ROCE > 12%<br>• P/E > 20 (Industry proxy)")
 
-    # ----- Tab 4: Intraday Breakout -----
+    # ----- Tab 4: Intraday Breakout & Breakdown (5-min) -----
     with screener_tab4:
-    st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
-    st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
+        st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
+        st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
 
-    with st.spinner("Scanning for intraday opportunities..."):
-        intraday_signals = []
-        total_stocks = len(ALL_STOCKS)
-        progress_bar = st.progress(0, text="Scanning stocks...")
-        for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-            sig = intraday_breakout_breakdown_signal(name)
-            if sig:
-                intraday_signals.append(sig)
-            progress_bar.progress((idx+1)/total_stocks)
-        progress_bar.empty()
+        with st.spinner("Scanning for intraday opportunities..."):
+            intraday_signals = []
+            total_stocks = len(ALL_STOCKS)
+            progress_bar = st.progress(0, text="Scanning stocks...")
+            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
+                sig = intraday_breakout_breakdown_signal(name)
+                if sig:
+                    intraday_signals.append(sig)
+                progress_bar.progress((idx+1)/total_stocks)
+            progress_bar.empty()
 
-    if intraday_signals:
-        intraday_df = pd.DataFrame(intraday_signals)
-        # Reorder columns for clarity
-        cols = ['Stock', 'Type', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
-        intraday_df = intraday_df[[c for c in cols if c in intraday_df.columns]]
-        st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY SIGNAL</span>', unsafe_allow_html=True)
-        st.dataframe(intraday_df, width='stretch')
-    else:
-        no_stocks_message(
-            "Intraday Breakout & Breakdown Screener",
-            "• Breakout: Close > VWAP, RSI > 55, Volume > 1.5× avg, Close > Previous High<br>"
-            "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
-        )
+        if intraday_signals:
+            intraday_df = pd.DataFrame(intraday_signals)
+            # Reorder columns for clarity
+            cols = ['Stock', 'Type', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
+            intraday_df = intraday_df[[c for c in cols if c in intraday_df.columns]]
+            st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY SIGNAL</span>', unsafe_allow_html=True)
+            st.dataframe(intraday_df, width='stretch')
+        else:
+            no_stocks_message(
+                "Intraday Breakout & Breakdown Screener",
+                "• Breakout: Close > VWAP, RSI > 55, Volume > 1.5× avg, Close > Previous High<br>"
+                "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
+            )
 
     # ----- Tab 5: AI Intraday Picks (BUY & SELL) -----
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
         st.caption("AI‑powered intraday picks for both BUY and SELL opportunities. Higher score = stronger signal.")
         with st.spinner("Scanning for AI intraday opportunities..."):
-            intraday = intraday_picks()[:20]  # increased limit to show both sides
+            intraday = intraday_picks()[:20]
         if intraday:
             intraday_df = pd.DataFrame(intraday)
             display_cols = ['Stock', 'Signal', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'AI Conf', 'Score']
@@ -1576,5 +1559,3 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
-
-
