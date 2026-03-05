@@ -354,7 +354,7 @@ def debug_data_fetch(ticker):
 # ------------------------------
 # DATA FETCHING WITH IMPROVED RETRIES AND FLATTENING
 # ------------------------------
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)  # 30 minutes cache
 def get_price_data(ticker):
     max_retries = 3
     for attempt in range(max_retries):
@@ -376,7 +376,7 @@ def get_price_data(ticker):
             time.sleep(2)
     return pd.DataFrame()
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)  # 5 minutes cache
 def get_intraday_data(ticker):
     max_retries = 2
     for attempt in range(max_retries):
@@ -463,7 +463,7 @@ def cagr(series, years=5):
         return np.nan
     return ((latest / past) ** (1/idx) - 1) * 100
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)  # 24 hours cache
 def get_fundamental_data(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -1274,7 +1274,43 @@ def main_app():
 
     st.markdown("---")
 
-    # Holdings Processing
+    # ------------------------------
+    # CHARTS SECTION (always visible, any stock)
+    # ------------------------------
+    st.markdown("## 📈 Price Charts")
+    st.caption("Select any stock from the market to view its 6‑month candlestick chart.")
+
+    all_stock_list = list(ALL_STOCKS.keys())
+    selected_chart_stock = st.selectbox("Select stock", all_stock_list, key="chart_stock_selector")
+    ticker = ALL_STOCKS[selected_chart_stock]
+    df_chart = get_price_data(ticker)
+    if not df_chart.empty:
+        fig = go.Figure(data=[go.Candlestick(
+            x=df_chart.index,
+            open=df_chart['Open'],
+            high=df_chart['High'],
+            low=df_chart['Low'],
+            close=df_chart['Close'],
+            name='Price'
+        )])
+        fig.update_layout(title=f"{selected_chart_stock} – 6 Months", height=500)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # RSI subplot
+        close = df_chart['Close'].astype(float)
+        rsi = RSIIndicator(close).rsi()
+        fig2 = px.line(y=rsi, title="RSI (14)")
+        fig2.add_hline(y=70, line_dash="dash", line_color="red")
+        fig2.add_hline(y=30, line_dash="dash", line_color="green")
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.warning(f"No chart data available for {selected_chart_stock}.")
+
+    st.markdown("---")
+
+    # ------------------------------
+    # HOLDINGS SECTION (only if data exists)
+    # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
             portfolio_data = []
@@ -1441,78 +1477,62 @@ def main_app():
 
         st.markdown("---")
 
-        # TABS
-        tab1, tab2 = st.tabs(["📊 Holdings & Recommendations", "📈 Charts"])
+        # Holdings Table (no charts tab here)
+        st.subheader("Your Holdings – Combined Screener Analysis")
+        st.caption("SUPER BUY = ≥15 criteria, BUY = 12-14, HOLD = 6-11, SELL = 0-5. Click Delete to sell stock.")
 
-        with tab1:
-            st.subheader("Your Holdings – Combined Screener Analysis")
-            st.caption("SUPER BUY = ≥15 criteria, BUY = 12-14, HOLD = 6-11, SELL = 0-5. Click Delete to sell stock.")
-
-            for idx, row in st.session_state.portfolio_df.iterrows():
-                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5,1,1,1,1,1,1.2,0.8])
-                with col1:
-                    st.write(f"**{row['Stock']}**")
-                with col2:
-                    st.write(f"{row['Qty']:.0f}")
-                with col3:
-                    st.write(f"₹{row['Avg Price']:.2f}" if not pd.isna(row['Avg Price']) else '-')
-                with col4:
-                    st.write(f"₹{row['Current Price']:.2f}")
-                with col5:
-                    st.write(f"₹{row['Cur Value']:.2f}")
-                with col6:
-                    st.write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
-                with col7:
-                    if row['Recommendation'] == 'SUPER BUY':
-                        st.markdown('<span class="super-buy-tag">SUPER BUY</span>', unsafe_allow_html=True)
-                    elif row['Recommendation'] == 'BUY':
-                        st.markdown('<span class="buy-tag">BUY</span>', unsafe_allow_html=True)
-                    elif row['Recommendation'] == 'HOLD':
-                        st.markdown('<span class="hold-tag">HOLD</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="sell-tag">SELL</span>', unsafe_allow_html=True)
-                with col8:
-                    if st.button("🗑️", key=f"del_{idx}"):
-                        sold_entry = {
-                            'Stock': row['Stock'],
-                            'Qty': row['Qty'],
-                            'Avg Price': row['Avg Price'],
-                            'Sell Price': row['Current Price'],
-                            'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
-                            'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
-                        }
-                        st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
-                        save_sold(st.session_state.sold_history)
-                        st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != row['Stock']].reset_index(drop=True)
-                        save_holdings(st.session_state.holdings_df)
-                        st.session_state.portfolio_df = None
-                        st.rerun()
-
-            st.markdown("#### Sold History")
-            if not st.session_state.sold_history.empty:
-                st.dataframe(st.session_state.sold_history, width='stretch')
-            else:
-                st.info("No sold stocks yet.")
-
-        with tab2:
-            st.subheader("Price Chart")
-            if not st.session_state.portfolio_df.empty:
-                selected = st.selectbox("Select stock", st.session_state.portfolio_df['Stock'].tolist())
-                ticker = ALL_STOCKS[selected]
-                df = get_price_data(ticker)
-                if not df.empty:
-                    fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-                    fig.update_layout(title=f"{selected} – 6 Months", height=450)
-                    st.plotly_chart(fig, use_container_width=True)
+        for idx, row in st.session_state.portfolio_df.iterrows():
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5,1,1,1,1,1,1.2,0.8])
+            with col1:
+                st.write(f"**{row['Stock']}**")
+            with col2:
+                st.write(f"{row['Qty']:.0f}")
+            with col3:
+                st.write(f"₹{row['Avg Price']:.2f}" if not pd.isna(row['Avg Price']) else '-')
+            with col4:
+                st.write(f"₹{row['Current Price']:.2f}")
+            with col5:
+                st.write(f"₹{row['Cur Value']:.2f}")
+            with col6:
+                st.write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
+            with col7:
+                if row['Recommendation'] == 'SUPER BUY':
+                    st.markdown('<span class="super-buy-tag">SUPER BUY</span>', unsafe_allow_html=True)
+                elif row['Recommendation'] == 'BUY':
+                    st.markdown('<span class="buy-tag">BUY</span>', unsafe_allow_html=True)
+                elif row['Recommendation'] == 'HOLD':
+                    st.markdown('<span class="hold-tag">HOLD</span>', unsafe_allow_html=True)
                 else:
-                    st.warning("No chart data.")
-            else:
-                st.info("No stocks to display.")
+                    st.markdown('<span class="sell-tag">SELL</span>', unsafe_allow_html=True)
+            with col8:
+                if st.button("🗑️", key=f"del_{idx}"):
+                    sold_entry = {
+                        'Stock': row['Stock'],
+                        'Qty': row['Qty'],
+                        'Avg Price': row['Avg Price'],
+                        'Sell Price': row['Current Price'],
+                        'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
+                        'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
+                    }
+                    st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
+                    save_sold(st.session_state.sold_history)
+                    st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != row['Stock']].reset_index(drop=True)
+                    save_holdings(st.session_state.holdings_df)
+                    st.session_state.portfolio_df = None
+                    st.rerun()
+
+        st.markdown("#### Sold History")
+        if not st.session_state.sold_history.empty:
+            st.dataframe(st.session_state.sold_history, width='stretch')
+        else:
+            st.info("No sold stocks yet.")
 
     else:
         st.info("No holdings data. Please add stocks using the section below.")
 
-    # Input Section
+    # ------------------------------
+    # INPUT SECTION
+    # ------------------------------
     st.markdown('<div class="input-section">', unsafe_allow_html=True)
     st.subheader("📁 Add Holdings")
     col1, col2 = st.columns([2, 1])
