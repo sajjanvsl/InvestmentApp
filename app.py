@@ -1324,18 +1324,18 @@ def main_app():
 
             # Configure column settings with center alignment
             column_config = {
-                'Sl.No': st.column_config.NumberColumn('Sl.No', disabled=True, width='small', alignment='center'),
-                'Stock': st.column_config.TextColumn('Stock', disabled=True, alignment='center'),
-                'Qty': st.column_config.NumberColumn('Qty', min_value=0, step=1, format="%.0f", alignment='center'),
-                'Avg Price': st.column_config.NumberColumn('Avg Price', min_value=0, format="%.2f", alignment='center'),
-                'LTP (CSV)': st.column_config.NumberColumn('LTP (CSV)', disabled=True, format="%.2f", alignment='center'),
-                'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f", alignment='center'),
-                'Cur Value': st.column_config.NumberColumn('Cur Value', disabled=True, format="₹%.2f", alignment='center'),
-                'P&L': st.column_config.NumberColumn('P&L', disabled=True, format="₹%.2f", alignment='center'),
-                'P&L %': st.column_config.NumberColumn('P&L %', disabled=True, format="%.2f%%", alignment='center'),
-                'Recommendation': st.column_config.TextColumn('Recommendation', disabled=True, alignment='center'),
-                'Criteria Met': st.column_config.TextColumn('Criteria Met', disabled=True, alignment='center'),
-                'Delete': st.column_config.CheckboxColumn('Delete', alignment='center')
+                'Sl.No': st.column_config.NumberColumn('Sl.No', disabled=True),
+                'Stock': st.column_config.TextColumn('Stock', disabled=True),
+                'Qty': st.column_config.NumberColumn('Qty', min_value=0, step=1, format="%.0f"),
+                'Avg Price': st.column_config.NumberColumn('Avg Price', min_value=0, format="%.2f"),
+                'LTP (CSV)': st.column_config.NumberColumn('LTP (CSV)', disabled=True, format="%.2f"),
+                'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
+                'Cur Value': st.column_config.NumberColumn('Cur Value', disabled=True, format="₹%.2f"),
+                'P&L': st.column_config.NumberColumn('P&L', disabled=True, format="₹%.2f"),
+                'P&L %': st.column_config.NumberColumn('P&L %', disabled=True, format="%.2f%%"),
+                'Recommendation': st.column_config.TextColumn('Recommendation', disabled=True),
+                'Criteria Met': st.column_config.TextColumn('Criteria Met', disabled=True),
+                'Delete': st.column_config.CheckboxColumn('Delete')
             }
 
             # Display the editable table with blue header (via CSS class)
@@ -1480,3 +1480,4 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
+
