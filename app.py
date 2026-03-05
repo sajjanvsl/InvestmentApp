@@ -972,16 +972,24 @@ def ai_intraday_sell_signal(df, name):
 
 def intraday_picks():
     picks = []
+    stock_signals = {}  # store the best signal per stock
     for name, ticker in ALL_STOCKS.items():
         df = get_price_data(ticker)
         buy_sig = ai_intraday_buy_signal(df, name)
         if buy_sig:
             buy_sig['Signal'] = 'BUY'
-            picks.append(buy_sig)
+            stock_signals[name] = buy_sig  # start with buy
         sell_sig = ai_intraday_sell_signal(df, name)
         if sell_sig:
             sell_sig['Signal'] = 'SELL'
-            picks.append(sell_sig)
+            if name in stock_signals:
+                # keep the one with higher score
+                if sell_sig['Score'] > stock_signals[name]['Score']:
+                    stock_signals[name] = sell_sig
+            else:
+                stock_signals[name] = sell_sig
+    # convert dict to list
+    picks = list(stock_signals.values())
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
@@ -1559,3 +1567,4 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
+
