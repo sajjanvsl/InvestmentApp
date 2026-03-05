@@ -1232,26 +1232,33 @@ def main_app():
 
     # ----- Tab 4: Intraday Breakout -----
     with screener_tab4:
-        st.markdown("## ⚡ Intraday Breakout Screener (5-min)")
-        st.caption("Real-time 5-minute breakout signals.")
-        with st.spinner("Scanning for intraday breakouts..."):
-            intraday_breakout_data = []
-            total_stocks = len(ALL_STOCKS)
-            progress_bar = st.progress(0, text="Scanning stocks...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-                sig = intraday_breakout_signal(name)
-                if sig:
-                    intraday_breakout_data.append(sig)
-                progress_bar.progress((idx+1)/total_stocks)
-            progress_bar.empty()
-        if intraday_breakout_data:
-            intraday_breakout_df = pd.DataFrame(intraday_breakout_data)
-            display_cols = ['Stock', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
-            intraday_breakout_df = intraday_breakout_df[[col for col in display_cols if col in intraday_breakout_df.columns]]
-            st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY BREAKOUT</span>', unsafe_allow_html=True)
-            st.dataframe(intraday_breakout_df, width='stretch')
-        else:
-            no_stocks_message("Intraday Breakout Screener (5-min)", "• Close > VWAP<br>• RSI > 55<br>• Volume > 1.5× average<br>• Close > Previous High")
+    st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
+    st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
+
+    with st.spinner("Scanning for intraday opportunities..."):
+        intraday_signals = []
+        total_stocks = len(ALL_STOCKS)
+        progress_bar = st.progress(0, text="Scanning stocks...")
+        for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
+            sig = intraday_breakout_breakdown_signal(name)
+            if sig:
+                intraday_signals.append(sig)
+            progress_bar.progress((idx+1)/total_stocks)
+        progress_bar.empty()
+
+    if intraday_signals:
+        intraday_df = pd.DataFrame(intraday_signals)
+        # Reorder columns for clarity
+        cols = ['Stock', 'Type', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
+        intraday_df = intraday_df[[c for c in cols if c in intraday_df.columns]]
+        st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY SIGNAL</span>', unsafe_allow_html=True)
+        st.dataframe(intraday_df, width='stretch')
+    else:
+        no_stocks_message(
+            "Intraday Breakout & Breakdown Screener",
+            "• Breakout: Close > VWAP, RSI > 55, Volume > 1.5× avg, Close > Previous High<br>"
+            "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
+        )
 
     # ----- Tab 5: AI Intraday Picks (BUY & SELL) -----
     with screener_tab5:
@@ -1569,4 +1576,5 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
+
 
