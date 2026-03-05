@@ -11,8 +11,7 @@ import json
 import os
 import time
 import hashlib
-import warnings
-warnings.filterwarnings('ignore')
+import traceback
 
 # Attempt to import sklearn – fallback if not available
 try:
@@ -330,31 +329,28 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DEBUG DATA FETCHING (FIXED)
+# DEBUG DATA FETCHING
 # ------------------------------
 def debug_data_fetch(ticker):
-    """Test data fetching for a single ticker and return status."""
     try:
         df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if df.empty:
             return "❌ No data"
-        # Flatten MultiIndex columns if present
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        # Ensure Close is a Series (squeeze if needed)
         close = df['Close'].squeeze()
         if isinstance(close, pd.Series):
             last_close = close.iloc[-1]
         else:
-            last_close = close  # scalar
+            last_close = close
         return f"✅ Data shape: {df.shape}, Last close: {last_close:.2f}"
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
 # ------------------------------
-# DATA FETCHING WITH IMPROVED RETRIES AND FLATTENING
+# DATA FETCHING WITH RETRIES
 # ------------------------------
-@st.cache_data(ttl=1800, show_spinner=False)  # 30 minutes cache
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_price_data(ticker):
     max_retries = 3
     for attempt in range(max_retries):
@@ -365,7 +361,6 @@ def get_price_data(ticker):
                     return pd.DataFrame()
                 time.sleep(2)
                 continue
-            # Flatten MultiIndex columns if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df.dropna(inplace=True)
@@ -376,7 +371,7 @@ def get_price_data(ticker):
             time.sleep(2)
     return pd.DataFrame()
 
-@st.cache_data(ttl=300, show_spinner=False)  # 5 minutes cache
+@st.cache_data(ttl=300, show_spinner=False)
 def get_intraday_data(ticker):
     max_retries = 2
     for attempt in range(max_retries):
@@ -384,7 +379,6 @@ def get_intraday_data(ticker):
             df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
             if df.empty:
                 return pd.DataFrame()
-            # Flatten MultiIndex columns if present
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df.dropna(inplace=True)
@@ -442,7 +436,7 @@ def save_sold(df):
             os.remove(SOLD_FILE)
 
 # ------------------------------
-# FUNDAMENTAL FETCHING (with 3‑year and 5‑year growth)
+# FUNDAMENTAL FETCHING
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -463,7 +457,7 @@ def cagr(series, years=5):
         return np.nan
     return ((latest / past) ** (1/idx) - 1) * 100
 
-@st.cache_data(ttl=86400, show_spinner=False)  # 24 hours cache
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_fundamental_data(ticker):
     try:
         t = yf.Ticker(ticker)
@@ -643,7 +637,6 @@ def train_simple_model(df):
         
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
-        # Store feature names to avoid warning later
         scaler.feature_names_in_ = feature_names
         
         model = RandomForestClassifier(n_estimators=30, max_depth=4, random_state=42)
@@ -654,28 +647,25 @@ def train_simple_model(df):
         return None, None
 
 # ------------------------------
-# SCREENER FUNCTIONS (now only return data, no criteria needed in final table)
+# SCREENER FUNCTIONS (return only signal dict, no criteria)
 # ------------------------------
 def swing_pullback_signal(df, name):
-    """Swing Pullback Screener – returns signal dict if all conditions met, else None."""
     if df.empty or len(df) < 50:
         return None
     try:
         close = df['Close'].astype(float)
         volume = df['Volume'].astype(float)
-        
         ema20 = close.ewm(span=20, adjust=False).mean()
         ema50 = close.ewm(span=50, adjust=False).mean()
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
-        
         current_close = close.iloc[-1]
         current_ema20 = ema20.iloc[-1]
         current_ema50 = ema50.iloc[-1]
         current_rsi = rsi.iloc[-1]
         current_volume = volume.iloc[-1]
         current_vol_sma = volume_sma20.iloc[-1]
-        
+
         cond1 = current_close > current_ema50
         cond2 = current_ema20 > current_ema50
         cond3 = current_close <= 1.02 * current_ema20
@@ -683,7 +673,7 @@ def swing_pullback_signal(df, name):
         cond5 = current_rsi < 60
         cond6 = current_volume > 1.2 * current_vol_sma if current_vol_sma > 0 else False
         cond7 = current_close > 100
-        
+
         if cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7:
             return {
                 'Stock': name,
@@ -701,20 +691,17 @@ def swing_pullback_signal(df, name):
         return None
 
 def swing_breakout_signal(df, name):
-    """Swing Breakout Screener – returns signal dict if all conditions met, else None."""
     if df.empty or len(df) < 50:
         return None
     try:
         close = df['Close'].astype(float)
         high = df['High'].astype(float)
         volume = df['Volume'].astype(float)
-        
         ema50 = close.ewm(span=50, adjust=False).mean()
         ema200 = close.ewm(span=200, adjust=False).mean()
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
         highest_high_20 = high.rolling(20).max()
-        
         current_close = close.iloc[-1]
         prev_close = close.iloc[-2] if len(close) > 1 else current_close
         current_ema50 = ema50.iloc[-1]
@@ -723,13 +710,13 @@ def swing_breakout_signal(df, name):
         current_volume = volume.iloc[-1]
         current_vol_sma = volume_sma20.iloc[-1]
         current_highest_high = highest_high_20.iloc[-1]
-        
+
         cond1 = current_close > current_highest_high and prev_close <= current_highest_high
         cond2 = current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False
         cond3 = current_rsi > 60
         cond4 = current_ema50 > current_ema200
         cond5 = current_close > 100
-        
+
         if cond1 and cond2 and cond3 and cond4 and cond5:
             return {
                 'Stock': name,
@@ -746,7 +733,6 @@ def swing_breakout_signal(df, name):
         return None
 
 def intraday_breakout_signal(name):
-    """Intraday Breakout Screener – returns signal dict if all conditions met, else None."""
     ticker = ALL_STOCKS[name]
     df = get_intraday_data(ticker)
     if df.empty or len(df) < 20:
@@ -756,24 +742,22 @@ def intraday_breakout_signal(name):
         high = df['High'].astype(float)
         low = df['Low'].astype(float)
         volume = df['Volume'].astype(float)
-        
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
         typical_price = (high + low + close) / 3
         vwap = (typical_price * volume).cumsum() / volume.cumsum()
-        
         current_close = close.iloc[-1]
         prev_high = high.iloc[-2] if len(high) > 1 else high.iloc[-1]
         current_rsi = rsi.iloc[-1]
         current_volume = volume.iloc[-1]
         current_vol_sma = volume_sma20.iloc[-1]
         current_vwap = vwap.iloc[-1]
-        
+
         cond1 = current_close > current_vwap
         cond2 = current_rsi > 55
         cond3 = current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False
         cond4 = current_close > prev_high
-        
+
         if cond1 and cond2 and cond3 and cond4:
             return {
                 'Stock': name,
@@ -790,7 +774,6 @@ def intraday_breakout_signal(name):
         return None
 
 def ai_swing_signal(df, name):
-    """AI Swing Scanner – returns signal dict if conditions met, else None."""
     if df.empty or len(df) < 50:
         return None
     try:
@@ -817,8 +800,7 @@ def ai_swing_signal(df, name):
                 last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
                 last_high_low = (high.iloc[-1] - low.iloc[-1]) / current_price
                 last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
-                # Create DataFrame with feature names to avoid warning
-                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]], 
+                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
                                            columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
                 features_scaled = scaler.transform(features_df)
                 pred_proba = model.predict_proba(features_scaled)[0]
@@ -845,13 +827,11 @@ def ai_swing_signal(df, name):
         return None
 
 def ai_intraday_signal(df, name):
-    """AI Intraday Picks – returns signal dict if conditions met, else None."""
     if df.empty or len(df) < 20:
         return None
     try:
         close = df['Close'].astype(float)
         volume = df['Volume']
-        
         rsi = RSIIndicator(close).rsi()
         current_rsi = rsi.iloc[-1]
         ma20 = close.rolling(20).mean().iloc[-1]
@@ -860,14 +840,12 @@ def ai_intraday_signal(df, name):
             return None
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
-        
-        # Rule-based scores
+
         rule_score = 0
         vol_condition = vol_ratio > 1.2
         price_ma_condition = current_price > ma20
         rsi_condition = 30 < current_rsi < 70
-        
-        # AI confidence
+
         ai_confidence = 0.0
         if SKLEARN_AVAILABLE and len(df) > 50:
             model, scaler = train_simple_model(df)
@@ -877,18 +855,17 @@ def ai_intraday_signal(df, name):
                 last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
                 last_high_low = (df['High'].iloc[-1] - df['Low'].iloc[-1]) / current_price
                 last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
-                # Create DataFrame with feature names
-                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]], 
+                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
                                            columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
                 features_scaled = scaler.transform(features_df)
                 pred_proba = model.predict_proba(features_scaled)[0]
                 ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
-        
+
         combined_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
                          (1 if price_ma_condition else 0) + \
                          (1 if rsi_condition else 0) + \
                          (ai_confidence * 3)
-        
+
         if combined_score >= 3:
             entry = current_price
             target = entry * 1.02
@@ -917,14 +894,12 @@ def intraday_picks():
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
-# LOGIN PAGE (unchanged)
+# LOGIN PAGE
 # ------------------------------
 def show_login():
     st.markdown("<h1 style='text-align: center; color: #8B0000;'>📈 Quant Fund Manager</h1>", unsafe_allow_html=True)
     st.markdown("---")
-    
     tab1, tab2 = st.tabs(["Login", "Forgot Password"])
-    
     with tab1:
         with st.form("login_form"):
             username = st.text_input("Username")
@@ -937,7 +912,6 @@ def show_login():
                     st.rerun()
                 else:
                     st.error("Invalid username or password")
-    
     with tab2:
         with st.form("reset_form"):
             reset_user = st.text_input("Username")
@@ -953,7 +927,6 @@ def show_login():
                     st.error("Username not found")
 
 def no_stocks_message(screener_name, criteria_description):
-    """Display a clear message when no stocks are found."""
     st.markdown(f"""
     <div class="no-stocks-message">
         <strong>📊 {screener_name}</strong><br><br>
@@ -1017,7 +990,7 @@ def main_app():
         st.session_state.last_refresh = datetime.now()
         st.rerun()
 
-    # Debug expander to check data fetching
+    # Debug expander
     with st.expander("🔧 Debug Data Fetching"):
         st.write("Testing data fetch for CIPLA.NS:")
         debug_result = debug_data_fetch("CIPLA.NS")
@@ -1026,12 +999,11 @@ def main_app():
             st.error("Data fetch failed. Please check your internet connection or try again later.")
         else:
             st.success("Data fetch successful. If screeners show no stocks, criteria may be too strict.")
-
         st.write("---")
         st.write("If data fetch fails, try running this command in your terminal:")
         st.code("pip install --upgrade yfinance")
 
-    # Create tabs
+    # Tabs
     screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5 = st.tabs([
         "🤖 AI Swing Scanner", 
         "📉 Swing Pullback", 
@@ -1040,10 +1012,10 @@ def main_app():
         "🤖 AI Intraday Picks"
     ])
 
+    # ----- Tab 1: AI Swing Scanner -----
     with screener_tab1:
         st.markdown("## 🤖 AI Swing Trading Scanner")
         st.caption("AI-powered swing signals combining technical rules with RandomForest.")
-
         with st.spinner("Fetching swing signals..."):
             swing_data = []
             today = datetime.now().date()
@@ -1062,24 +1034,19 @@ def main_app():
                     swing_data.append(sig)
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
-
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
-            # Keep only columns we want to display
             display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'AI Conf', 'Fresh']
             swing_df = swing_df[[col for col in display_cols if col in swing_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df, width='stretch')
         else:
-            no_stocks_message(
-                "AI Swing Scanner",
-                "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%"
-            )
+            no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
+    # ----- Tab 2: Swing Pullback -----
     with screener_tab2:
         st.markdown("## 📉 Swing Pullback Screener")
         st.caption("High probability pullback opportunities.")
-        
         with st.spinner("Scanning for pullback opportunities..."):
             pullback_data = []
             total_stocks = len(ALL_STOCKS)
@@ -1091,7 +1058,6 @@ def main_app():
                     pullback_data.append(sig)
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
-        
         if pullback_data:
             pullback_df = pd.DataFrame(pullback_data)
             display_cols = ['Stock', 'Close', 'RSI', '20 EMA', '50 EMA', 'Vol Ratio', 'Entry', 'Target', 'Stop Loss']
@@ -1099,49 +1065,38 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP PULLBACK</span>', unsafe_allow_html=True)
             st.dataframe(pullback_df, width='stretch')
         else:
-            no_stocks_message(
-                "Swing Pullback Screener",
-                "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close ≤ 1.02 × 20 EMA<br>• RSI between 40-60<br>• Volume > 1.2× average<br>• Price > 100"
-            )
+            no_stocks_message("Swing Pullback Screener", "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close ≤ 1.02 × 20 EMA<br>• RSI between 40-60<br>• Volume > 1.2× average<br>• Price > 100")
 
+    # ----- Tab 3: Fundamental Breakout (new) -----
     with screener_tab3:
         st.markdown("## 📈 Fundamental Breakout Screener")
         st.caption("Stocks meeting: Price >1000, Mkt Cap >1000 Cr, Sales & Profit growth >50%, ROCE >12%, P/E > 20 (industry proxy).")
-
         with st.spinner("Scanning for fundamental breakouts..."):
             breakout_data = []
             total_stocks = len(ALL_STOCKS)
             progress_bar = st.progress(0, text="Scanning stocks...")
             for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-                # Fetch price data for current price
                 price_df = get_price_data(ticker)
                 if price_df.empty:
                     progress_bar.progress((idx+1)/total_stocks)
                     continue
                 close_series = price_df['Close'].squeeze()
                 current_price = close_series.iloc[-1] if isinstance(close_series, pd.Series) else close_series
-                
-                # Fetch fundamental data
                 fund = get_fundamental_data(ticker)
                 if fund is None:
                     progress_bar.progress((idx+1)/total_stocks)
                     continue
-                
-                # Extract needed values
                 market_cap = fund.get('market_cap')
                 sales_growth = fund.get('sales_growth_3y')
                 profit_growth = fund.get('profit_growth_3y')
                 roce = fund.get('roce')
                 pe = fund.get('info', {}).get('trailingPE')
-                
-                # Conditions
                 cond1 = current_price > 1000
                 cond2 = market_cap > 1000 if not pd.isna(market_cap) else False
                 cond3 = sales_growth > 50 if not pd.isna(sales_growth) else False
                 cond4 = profit_growth > 50 if not pd.isna(profit_growth) else False
                 cond5 = roce > 12 if not pd.isna(roce) else False
                 cond6 = pe > 20 if not pd.isna(pe) else False
-                
                 if cond1 and cond2 and cond3 and cond4 and cond5 and cond6:
                     breakout_data.append({
                         'Stock': name,
@@ -1154,7 +1109,6 @@ def main_app():
                     })
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
-        
         if breakout_data:
             breakout_df = pd.DataFrame(breakout_data)
             st.markdown('<span class="top-pick-badge">⭐ TOP BREAKOUT</span>', unsafe_allow_html=True)
@@ -1166,15 +1120,12 @@ def main_app():
                 'ROCE (%)': '{:.2f}%'
             }, na_rep='-'), width='stretch')
         else:
-            no_stocks_message(
-                "Fundamental Breakout Screener",
-                "• Price > 1000<br>• Mkt Cap > 1000 Cr<br>• Sales growth > 50%<br>• Profit growth > 50%<br>• ROCE > 12%<br>• P/E > 20 (Industry proxy)"
-            )
+            no_stocks_message("Fundamental Breakout Screener", "• Price > 1000<br>• Mkt Cap > 1000 Cr<br>• Sales growth > 50%<br>• Profit growth > 50%<br>• ROCE > 12%<br>• P/E > 20 (Industry proxy)")
 
+    # ----- Tab 4: Intraday Breakout -----
     with screener_tab4:
         st.markdown("## ⚡ Intraday Breakout Screener (5-min)")
         st.caption("Real-time 5-minute breakout signals.")
-        
         with st.spinner("Scanning for intraday breakouts..."):
             intraday_breakout_data = []
             total_stocks = len(ALL_STOCKS)
@@ -1185,7 +1136,6 @@ def main_app():
                     intraday_breakout_data.append(sig)
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
-        
         if intraday_breakout_data:
             intraday_breakout_df = pd.DataFrame(intraday_breakout_data)
             display_cols = ['Stock', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
@@ -1193,18 +1143,14 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY BREAKOUT</span>', unsafe_allow_html=True)
             st.dataframe(intraday_breakout_df, width='stretch')
         else:
-            no_stocks_message(
-                "Intraday Breakout Screener (5-min)",
-                "• Close > VWAP<br>• RSI > 55<br>• Volume > 1.5× average<br>• Close > Previous High"
-            )
+            no_stocks_message("Intraday Breakout Screener (5-min)", "• Close > VWAP<br>• RSI > 55<br>• Volume > 1.5× average<br>• Close > Previous High")
 
+    # ----- Tab 5: AI Intraday Picks -----
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
         st.caption("AI‑powered intraday picks. Higher score = stronger signal.")
-        
         with st.spinner("Scanning for AI intraday opportunities..."):
             intraday = intraday_picks()[:10]
-        
         if intraday:
             intraday_df = pd.DataFrame(intraday)
             display_cols = ['Stock', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'AI Conf', 'Score']
@@ -1212,22 +1158,287 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df, width='stretch')
         else:
-            no_stocks_message(
-                "AI Intraday Picks",
-                "• Volume surge > 1.2x<br>• Price > 20 MA<br>• RSI between 30-70<br>• AI confidence > 60%<br>• Combined score ≥ 3"
-            )
+            no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price > 20 MA<br>• RSI between 30-70<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (unchanged, with editable quantities)
+    # HOLDINGS SECTION (with editable quantities)
     # ------------------------------
-    # (keep the holdings section as before – omitted here for brevity but will be included in final answer)
+    if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
+        if st.session_state.portfolio_df is None:
+            portfolio_data = []
+            debug_data = []
+            criteria_data = {}
+            total_value = 0.0
+            total_cost = 0.0
+            super_buy_count = 0
+            buy_count = 0
+            hold_count = 0
+            sell_count = 0
+
+            for idx, row in st.session_state.holdings_df.iterrows():
+                name = row['Instrument']
+                ticker = ALL_STOCKS.get(name)
+                price_df = get_price_data(ticker)
+                if price_df.empty:
+                    continue
+                close_series = price_df['Close'].squeeze()
+                if isinstance(close_series, pd.Series):
+                    current_price = close_series.iloc[-1]
+                else:
+                    current_price = close_series
+                cur_value = row['Qty'] * current_price
+                if not pd.isna(row['Avg Price']):
+                    pnl = row['Qty'] * (current_price - row['Avg Price'])
+                    pnl_pct = (current_price - row['Avg Price']) / row['Avg Price'] * 100
+                else:
+                    pnl = np.nan
+                    pnl_pct = np.nan
+                fund = get_fundamental_data(ticker)
+                rec, criteria, criteria_met, values = screen_stock(fund)
+                if rec == "SUPER BUY":
+                    super_buy_count += 1
+                elif rec == "BUY":
+                    buy_count += 1
+                elif rec == "HOLD":
+                    hold_count += 1
+                else:
+                    sell_count += 1
+                portfolio_data.append({
+                    'Stock': name,
+                    'Qty': row['Qty'],
+                    'Avg Price': row['Avg Price'],
+                    'LTP (CSV)': row['LTP'],
+                    'Current Price': current_price,
+                    'Cur Value': cur_value,
+                    'P&L': pnl,
+                    'P&L %': pnl_pct,
+                    'Recommendation': rec,
+                    'Criteria Met': f"{criteria_met}/19",
+                })
+                debug_data.append({
+                    'Stock': name,
+                    **values
+                })
+                criteria_data[name] = criteria
+                total_value += cur_value
+                if not pd.isna(row['Avg Price']):
+                    total_cost += row['Qty'] * row['Avg Price']
+
+            st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
+            st.session_state.total_value = total_value
+            st.session_state.total_cost = total_cost
+            st.session_state.super_buy_count = super_buy_count
+            st.session_state.buy_count = buy_count
+            st.session_state.hold_count = hold_count
+            st.session_state.sell_count = sell_count
+            st.session_state.debug_df = pd.DataFrame(debug_data)
+            st.session_state.criteria_data = criteria_data
+
+        st.markdown("## 📊 SUPER SCREENER RANKING")
+        st.markdown("Based on combined 19‑factor formula. **SUPER BUY** = ≥15 criteria, BUY = 12-14, HOLD = 6-11, SELL = 0-5.")
+
+        with st.expander("🔍 Detailed Criteria Analysis for Your Holdings"):
+            st.write("### 📋 Criteria Check for Each Stock")
+            st.write("Click on a stock to see which of the 19 criteria are met:")
+            if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
+                selected_stock = st.selectbox("Select stock to view criteria", st.session_state.portfolio_df['Stock'].tolist(), key="holdings_criteria")
+                if selected_stock in st.session_state.criteria_data:
+                    def display_criteria_table(criteria_dict, title):
+                        html = f'<div class="criteria-table"><h4>{title}</h4>'
+                        for criterion, met in criteria_dict.items():
+                            status = '✅' if met else '❌'
+                            color = 'criteria-pass' if met else 'criteria-fail'
+                            html += f'<div class="criteria-row"><span>{criterion}</span><span class="{color}">{status}</span></div>'
+                        html += '</div>'
+                        return html
+                    st.markdown(display_criteria_table(st.session_state.criteria_data[selected_stock], f"19-Point Checklist for {selected_stock}"), unsafe_allow_html=True)
+                    st.write("### 📊 Detailed Values")
+                    stock_debug = st.session_state.debug_df[st.session_state.debug_df['Stock'] == selected_stock].iloc[0]
+                    debug_dict = stock_debug.to_dict()
+                    debug_df = pd.DataFrame(list(debug_dict.items()), columns=['Metric', 'Value'])
+                    debug_df['Value'] = debug_df['Value'].apply(lambda x: f"{x:.2f}" if isinstance(x, (int, float)) and not pd.isna(x) else ('N/A' if pd.isna(x) else x))
+                    st.dataframe(debug_df, width='stretch')
+            else:
+                st.info("No debug data available.")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            try:
+                total_val_display = f"₹{float(st.session_state.total_value):,.0f}"
+            except:
+                total_val_display = "₹0"
+            st.markdown(f'<div class="metric-card"><div class="metric-label">Total Portfolio Value</div><div class="metric-value">{total_val_display}</div></div>', unsafe_allow_html=True)
+        with col2:
+            if st.session_state.total_cost > 0:
+                try:
+                    total_pnl = float(st.session_state.total_value) - float(st.session_state.total_cost)
+                    total_pnl_pct = (total_pnl / float(st.session_state.total_cost)) * 100
+                    delta_color = "green" if total_pnl >= 0 else "red"
+                    pnl_display = f"₹{total_pnl:+,.0f}"
+                    pnl_pct_display = f"{total_pnl_pct:+.2f}%"
+                except:
+                    pnl_display = "₹0"
+                    pnl_pct_display = "0.00%"
+                    delta_color = "gray"
+                st.markdown(f'<div class="metric-card"><div class="metric-label">Total P&L</div><div class="metric-value">{pnl_display}</div><div class="metric-delta" style="color:{delta_color};">{pnl_pct_display}</div></div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="metric-card"><div class="metric-label">Total P&L</div><div class="metric-value">N/A</div></div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown(f'<div class="metric-card"><div class="metric-label">SUPER BUY / BUY / HOLD / SELL</div><div class="metric-value">{st.session_state.super_buy_count} / {st.session_state.buy_count} / {st.session_state.hold_count} / {st.session_state.sell_count}</div></div>', unsafe_allow_html=True)
+        with col4:
+            st.markdown(f'<div class="metric-card"><div class="metric-label">Portfolio Size</div><div class="metric-value">{len(st.session_state.portfolio_df)}</div></div>', unsafe_allow_html=True)
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.subheader("Portfolio Allocation by Value")
+            if not st.session_state.portfolio_df.empty:
+                fig = px.pie(st.session_state.portfolio_df, values='Cur Value', names='Stock')
+                fig.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            st.subheader("Performance Sparkline")
+            st.info("Coming soon")
+
+        st.markdown("---")
+        st.subheader("Your Holdings – Combined Screener Analysis")
+        st.caption("Edit Qty and Avg Price directly. Changes are saved automatically. Click Delete to sell stock.")
+
+        updated_holdings = st.session_state.holdings_df.copy()
+        changes_made = False
+        for idx, row in st.session_state.portfolio_df.iterrows():
+            stock_name = row['Stock']
+            with st.container():
+                cols = st.columns([1.5, 1, 1, 1, 1, 1, 1.2, 0.8])
+                with cols[0]:
+                    st.write(f"**{stock_name}**")
+                current_qty = float(row['Qty']) if not pd.isna(row['Qty']) else 0.0
+                new_qty = cols[1].number_input("Qty", value=current_qty, min_value=0.0, step=1.0, key=f"qty_{idx}", label_visibility="collapsed")
+                if new_qty != current_qty:
+                    updated_holdings.loc[updated_holdings['Instrument'] == stock_name, 'Qty'] = new_qty
+                    changes_made = True
+                current_avg = row['Avg Price'] if not pd.isna(row['Avg Price']) else 0.0
+                new_avg = cols[2].number_input("Avg Price", value=current_avg, min_value=0.0, step=0.01, format="%.2f", key=f"avg_{idx}", label_visibility="collapsed")
+                if new_avg != current_avg:
+                    updated_holdings.loc[updated_holdings['Instrument'] == stock_name, 'Avg Price'] = new_avg
+                    changes_made = True
+                cols[3].write(f"₹{row['Current Price']:.2f}")
+                cols[4].write(f"₹{row['Cur Value']:.2f}")
+                cols[5].write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
+                with cols[6]:
+                    if row['Recommendation'] == 'SUPER BUY':
+                        st.markdown('<span class="super-buy-tag">SUPER BUY</span>', unsafe_allow_html=True)
+                    elif row['Recommendation'] == 'BUY':
+                        st.markdown('<span class="buy-tag">BUY</span>', unsafe_allow_html=True)
+                    elif row['Recommendation'] == 'HOLD':
+                        st.markdown('<span class="hold-tag">HOLD</span>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span class="sell-tag">SELL</span>', unsafe_allow_html=True)
+                with cols[7]:
+                    if st.button("🗑️", key=f"del_{idx}"):
+                        sold_entry = {
+                            'Stock': stock_name,
+                            'Qty': row['Qty'],
+                            'Avg Price': row['Avg Price'],
+                            'Sell Price': row['Current Price'],
+                            'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
+                            'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
+                        }
+                        st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
+                        save_sold(st.session_state.sold_history)
+                        updated_holdings = updated_holdings[updated_holdings['Instrument'] != stock_name].reset_index(drop=True)
+                        changes_made = True
+                        st.rerun()
+        if changes_made:
+            save_holdings(updated_holdings)
+            st.session_state.holdings_df = updated_holdings
+            st.session_state.portfolio_df = None
+            st.rerun()
+
+        st.markdown("#### Sold History")
+        if not st.session_state.sold_history.empty:
+            st.dataframe(st.session_state.sold_history, width='stretch')
+        else:
+            st.info("No sold stocks yet.")
+
+    else:
+        st.info("No holdings data. Please add stocks using the section below.")
 
     # ------------------------------
-    # INPUT SECTION (unchanged)
+    # INPUT SECTION
     # ------------------------------
-    # (keep the input section as before)
+    st.markdown('<div class="input-section">', unsafe_allow_html=True)
+    st.subheader("📁 Add Holdings")
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
+    with col2:
+        single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA").strip().upper()
 
-    # For completeness, the full code includes holdings and input sections exactly as before.
-    # Since the user only asked to modify the screeners to table format, we present the whole file.
+    if uploaded_file is not None:
+        try:
+            raw_df = pd.read_csv(uploaded_file, skipinitialspace=True, engine='python')
+            raw_df = raw_df.loc[:, ~raw_df.columns.str.contains('^Unnamed')]
+            if raw_df.shape[1] < 8:
+                st.error(f"CSV has only {raw_df.shape[1]} columns. Expected at least 8.")
+            else:
+                df_hold = raw_df.iloc[:, :8].copy()
+                df_hold.columns = ['Instrument', 'Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']
+                df_hold['Instrument'] = df_hold['Instrument'].astype(str).str.strip().str.upper()
+                df_hold = df_hold[df_hold['Instrument'].notna() & (df_hold['Instrument'] != '') & (df_hold['Instrument'] != 'NAN')]
+                for col in ['Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']:
+                    df_hold[col] = pd.to_numeric(df_hold[col], errors='coerce')
+                df_hold = df_hold[df_hold['Instrument'].isin(ALL_STOCKS.keys())]
+                if len(df_hold) == 0:
+                    st.error("No stocks from your CSV are in the master list.")
+                else:
+                    st.session_state.holdings_df = df_hold
+                    save_holdings(df_hold)
+                    st.session_state.portfolio_df = None
+                    st.success(f"Loaded {len(df_hold)} stocks from CSV.")
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Error reading CSV: {e}")
+
+    if single_stock:
+        if single_stock in ALL_STOCKS:
+            new_row = pd.DataFrame({
+                'Instrument': [single_stock],
+                'Qty': [1],
+                'Avg Price': [np.nan],
+                'LTP': [np.nan],
+                'Cur Value': [np.nan],
+                'P&L': [np.nan],
+                'Net Chg %': [np.nan],
+                'Day Chg %': [np.nan]
+            })
+            if st.session_state.holdings_df is not None:
+                if single_stock not in st.session_state.holdings_df['Instrument'].values:
+                    st.session_state.holdings_df = pd.concat([st.session_state.holdings_df, new_row], ignore_index=True)
+                    save_holdings(st.session_state.holdings_df)
+                    st.session_state.portfolio_df = None
+                    st.success(f"Added {single_stock}.")
+                    st.rerun()
+                else:
+                    st.warning(f"{single_stock} already in holdings.")
+            else:
+                st.session_state.holdings_df = new_row
+                save_holdings(st.session_state.holdings_df)
+                st.session_state.portfolio_df = None
+                st.success(f"Added {single_stock}.")
+                st.rerun()
+        else:
+            st.error(f"{single_stock} not found in master list.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))
+
+# ------------------------------
+# ROUTING
+# ------------------------------
+if not st.session_state.authenticated:
+    show_login()
+else:
+    main_app()
