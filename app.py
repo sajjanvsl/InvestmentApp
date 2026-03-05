@@ -1302,69 +1302,95 @@ def main_app():
             st.info("Coming soon")
 
         st.markdown("---")
-        st.subheader("Your Holdings – Combined Screener Analysis")
-        st.caption("Edit Qty and Avg Price directly. Changes are saved automatically. Click Delete to sell stock.")
+        # In the holdings section, replace the old display with this:
 
-        updated_holdings = st.session_state.holdings_df.copy()
-        changes_made = False
-        for idx, row in st.session_state.portfolio_df.iterrows():
+st.subheader("Your Holdings – Combined Screener Analysis")
+st.caption("Edit Qty and Avg Price directly in the table. Check 'Delete' and click 'Delete Selected' to sell stock(s).")
+
+# Prepare the DataFrame for editing
+if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
+    # Create a copy with the columns we want to display/edit
+    edit_df = st.session_state.portfolio_df.copy()
+    # Add a 'Delete' column for selection (default False)
+    edit_df['Delete'] = False
+
+    # Configure column settings
+    column_config = {
+        'Stock': st.column_config.TextColumn('Stock', disabled=True),
+        'Qty': st.column_config.NumberColumn('Qty', min_value=0, step=1, format="%.0f"),
+        'Avg Price': st.column_config.NumberColumn('Avg Price', min_value=0, format="%.2f"),
+        'LTP (CSV)': st.column_config.NumberColumn('LTP (CSV)', disabled=True, format="%.2f"),
+        'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
+        'Cur Value': st.column_config.NumberColumn('Cur Value', disabled=True, format="₹%.2f"),
+        'P&L': st.column_config.NumberColumn('P&L', disabled=True, format="₹%.2f"),
+        'P&L %': st.column_config.NumberColumn('P&L %', disabled=True, format="%.2f%%"),
+        'Recommendation': st.column_config.TextColumn('Recommendation', disabled=True),
+        'Criteria Met': st.column_config.TextColumn('Criteria Met', disabled=True),
+        'Delete': st.column_config.CheckboxColumn('Delete')
+    }
+
+    # Display the editable table
+    edited_df = st.data_editor(
+        edit_df,
+        column_config=column_config,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed"
+    )
+
+    # Check for changes (Qty or Avg Price) and update holdings_df
+    changes_made = False
+    # Compare edited_df with original portfolio_df (excluding Delete column)
+    for col in ['Qty', 'Avg Price']:
+        if not edited_df[col].equals(edit_df[col]):
+            changes_made = True
+            break
+
+    if changes_made:
+        # Update holdings_df with new values
+        for idx, row in edited_df.iterrows():
             stock_name = row['Stock']
-            with st.container():
-                cols = st.columns([1.5, 1, 1, 1, 1, 1, 1.2, 0.8])
-                with cols[0]:
-                    st.write(f"**{stock_name}**")
-                current_qty = float(row['Qty']) if not pd.isna(row['Qty']) else 0.0
-                new_qty = cols[1].number_input("Qty", value=current_qty, min_value=0.0, step=1.0, key=f"qty_{idx}", label_visibility="collapsed")
-                if new_qty != current_qty:
-                    updated_holdings.loc[updated_holdings['Instrument'] == stock_name, 'Qty'] = new_qty
-                    changes_made = True
-                current_avg = row['Avg Price'] if not pd.isna(row['Avg Price']) else 0.0
-                new_avg = cols[2].number_input("Avg Price", value=current_avg, min_value=0.0, step=0.01, format="%.2f", key=f"avg_{idx}", label_visibility="collapsed")
-                if new_avg != current_avg:
-                    updated_holdings.loc[updated_holdings['Instrument'] == stock_name, 'Avg Price'] = new_avg
-                    changes_made = True
-                cols[3].write(f"₹{row['Current Price']:.2f}")
-                cols[4].write(f"₹{row['Cur Value']:.2f}")
-                cols[5].write(f"₹{row['P&L']:+.2f}" if not pd.isna(row['P&L']) else '-')
-                with cols[6]:
-                    if row['Recommendation'] == 'SUPER BUY':
-                        st.markdown('<span class="super-buy-tag">SUPER BUY</span>', unsafe_allow_html=True)
-                    elif row['Recommendation'] == 'BUY':
-                        st.markdown('<span class="buy-tag">BUY</span>', unsafe_allow_html=True)
-                    elif row['Recommendation'] == 'HOLD':
-                        st.markdown('<span class="hold-tag">HOLD</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="sell-tag">SELL</span>', unsafe_allow_html=True)
-                with cols[7]:
-                    if st.button("🗑️", key=f"del_{idx}"):
-                        sold_entry = {
-                            'Stock': stock_name,
-                            'Qty': row['Qty'],
-                            'Avg Price': row['Avg Price'],
-                            'Sell Price': row['Current Price'],
-                            'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
-                            'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
-                        }
-                        st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
-                        save_sold(st.session_state.sold_history)
-                        updated_holdings = updated_holdings[updated_holdings['Instrument'] != stock_name].reset_index(drop=True)
-                        changes_made = True
-                        st.rerun()
-        if changes_made:
-            save_holdings(updated_holdings)
-            st.session_state.holdings_df = updated_holdings
+            # Find the corresponding row in holdings_df
+            mask = st.session_state.holdings_df['Instrument'] == stock_name
+            if mask.any():
+                st.session_state.holdings_df.loc[mask, 'Qty'] = row['Qty']
+                st.session_state.holdings_df.loc[mask, 'Avg Price'] = row['Avg Price']
+        save_holdings(st.session_state.holdings_df)
+        st.session_state.portfolio_df = None  # Force recompute
+        st.rerun()
+
+    # Handle deletions
+    selected_for_deletion = edited_df[edited_df['Delete'] == True]
+    if not selected_for_deletion.empty:
+        st.warning(f"{len(selected_for_deletion)} stock(s) selected for deletion.")
+        if st.button("🗑️ Delete Selected", type="primary"):
+            for _, row in selected_for_deletion.iterrows():
+                stock_name = row['Stock']
+                # Add to sold history
+                sold_entry = {
+                    'Stock': stock_name,
+                    'Qty': row['Qty'],
+                    'Avg Price': row['Avg Price'],
+                    'Sell Price': row['Current Price'],
+                    'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
+                    'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
+                }
+                st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
+                # Remove from holdings
+                st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != stock_name].reset_index(drop=True)
+            save_sold(st.session_state.sold_history)
+            save_holdings(st.session_state.holdings_df)
             st.session_state.portfolio_df = None
             st.rerun()
 
-        st.markdown("#### Sold History")
-        if not st.session_state.sold_history.empty:
-            st.dataframe(st.session_state.sold_history, width='stretch')
-        else:
-            st.info("No sold stocks yet.")
-
+    # Display sold history
+    st.markdown("#### Sold History")
+    if not st.session_state.sold_history.empty:
+        st.dataframe(st.session_state.sold_history, width='stretch')
     else:
-        st.info("No holdings data. Please add stocks using the section below.")
-
+        st.info("No sold stocks yet.")
+else:
+    st.info("No holdings data. Please add stocks using the section below.")
     # ------------------------------
     # INPUT SECTION
     # ------------------------------
@@ -1442,3 +1468,4 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
+
