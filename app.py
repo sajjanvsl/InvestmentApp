@@ -740,7 +740,8 @@ def swing_breakout_signal(df, name):
     except Exception:
         return None
 
-def intraday_breakout_signal(name):
+def intraday_breakout_breakdown_signal(name):
+    """Intraday Breakout/Breakdown Screener using 5-min data."""
     ticker = ALL_STOCKS[name]
     df = get_intraday_data(ticker)
     if df.empty or len(df) < 20:
@@ -750,25 +751,40 @@ def intraday_breakout_signal(name):
         high = df['High'].astype(float)
         low = df['Low'].astype(float)
         volume = df['Volume'].astype(float)
+
         rsi = RSIIndicator(close).rsi()
         volume_sma20 = volume.rolling(20).mean()
         typical_price = (high + low + close) / 3
         vwap = (typical_price * volume).cumsum() / volume.cumsum()
+
         current_close = close.iloc[-1]
         prev_high = high.iloc[-2] if len(high) > 1 else high.iloc[-1]
+        prev_low = low.iloc[-2] if len(low) > 1 else low.iloc[-1]
         current_rsi = rsi.iloc[-1]
         current_volume = volume.iloc[-1]
         current_vol_sma = volume_sma20.iloc[-1]
         current_vwap = vwap.iloc[-1]
 
-        cond1 = current_close > current_vwap
-        cond2 = current_rsi > 55
-        cond3 = current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False
-        cond4 = current_close > prev_high
+        # Conditions for Breakout (up)
+        breakout_cond = (
+            current_close > current_vwap and
+            current_rsi > 55 and
+            current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
+            current_close > prev_high
+        )
 
-        if cond1 and cond2 and cond3 and cond4:
+        # Conditions for Breakdown (down)
+        breakdown_cond = (
+            current_close < current_vwap and
+            current_rsi < 45 and
+            current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
+            current_close < prev_low
+        )
+
+        if breakout_cond:
             return {
                 'Stock': name,
+                'Type': 'BREAKOUT',
                 'Close': round(current_close, 2),
                 'RSI': round(current_rsi, 1),
                 'Vol Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
@@ -776,6 +792,18 @@ def intraday_breakout_signal(name):
                 'Entry': round(current_close, 2),
                 'Target': round(current_close * 1.02, 2),
                 'Stop Loss': round(current_vwap * 0.99, 2)
+            }
+        elif breakdown_cond:
+            return {
+                'Stock': name,
+                'Type': 'BREAKDOWN',
+                'Close': round(current_close, 2),
+                'RSI': round(current_rsi, 1),
+                'Vol Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
+                'VWAP': round(current_vwap, 2),
+                'Entry': round(current_close, 2),
+                'Target': round(current_close * 0.98, 2),
+                'Stop Loss': round(current_vwap * 1.01, 2)
             }
         return None
     except Exception:
@@ -1541,3 +1569,4 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
+
