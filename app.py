@@ -1254,7 +1254,7 @@ def main_app():
     # ----- Tab 5: AI Intraday Picks (BUY & SELL) -----
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
-        st.caption("AI‑powered intraday picks for both BUY and SELL opportunities. Higher score = stronger signal.")
+        st.caption("AI‑powered intraday picks – only the highest‑confidence signal per stock is shown. Higher score = stronger signal.")
         with st.spinner("Scanning for AI intraday opportunities..."):
             intraday = intraday_picks()[:20]
         if intraday:
@@ -1567,4 +1567,5 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
+
 
