@@ -41,7 +41,7 @@ st.markdown("""
         font-weight: 700;
         letter-spacing: -0.02em;
     }
-    /* Table headers */
+    /* Table headers - general */
     .stDataFrame th {
         background: #2c3e50 !important;
         color: white !important;
@@ -53,6 +53,14 @@ st.markdown("""
     .stDataFrame td {
         font-size: 1rem !important;
         padding: 10px !important;
+    }
+    /* Holdings table specific header */
+    .holdings-table thead tr th {
+        background: #1E3A8A !important;  /* dark blue */
+        color: white !important;
+        font-weight: bold !important;
+        font-size: 1.1rem !important;
+        text-align: center !important;
     }
     /* Metric cards */
     .metric-card {
@@ -1067,7 +1075,7 @@ def main_app():
         else:
             no_stocks_message("Swing Pullback Screener", "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close ≤ 1.02 × 20 EMA<br>• RSI between 40-60<br>• Volume > 1.2× average<br>• Price > 100")
 
-    # ----- Tab 3: Fundamental Breakout (new) -----
+    # ----- Tab 3: Fundamental Breakout -----
     with screener_tab3:
         st.markdown("## 📈 Fundamental Breakout Screener")
         st.caption("Stocks meeting: Price >1000, Mkt Cap >1000 Cr, Sales & Profit growth >50%, ROCE >12%, P/E > 20 (industry proxy).")
@@ -1163,7 +1171,7 @@ def main_app():
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (with editable quantities)
+    # HOLDINGS SECTION (with editable table, Sl.No, blue headers, center alignment)
     # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
@@ -1302,95 +1310,99 @@ def main_app():
             st.info("Coming soon")
 
         st.markdown("---")
-        # In the holdings section, replace the old display with this:
+        st.subheader("Your Holdings – Combined Screener Analysis")
+        st.caption("Edit Qty and Avg Price directly in the table. Check 'Delete' and click 'Delete Selected' to sell stock(s).")
 
-st.subheader("Your Holdings – Combined Screener Analysis")
-st.caption("Edit Qty and Avg Price directly in the table. Check 'Delete' and click 'Delete Selected' to sell stock(s).")
+        # Prepare the DataFrame for editing with Sl.No column
+        if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
+            # Create a copy with the columns we want to display/edit
+            edit_df = st.session_state.portfolio_df.copy()
+            # Add serial number column
+            edit_df.insert(0, 'Sl.No', range(1, len(edit_df) + 1))
+            # Add a 'Delete' column for selection (default False)
+            edit_df['Delete'] = False
 
-# Prepare the DataFrame for editing
-if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
-    # Create a copy with the columns we want to display/edit
-    edit_df = st.session_state.portfolio_df.copy()
-    # Add a 'Delete' column for selection (default False)
-    edit_df['Delete'] = False
+            # Configure column settings with center alignment
+            column_config = {
+                'Sl.No': st.column_config.NumberColumn('Sl.No', disabled=True, width='small', alignment='center'),
+                'Stock': st.column_config.TextColumn('Stock', disabled=True, alignment='center'),
+                'Qty': st.column_config.NumberColumn('Qty', min_value=0, step=1, format="%.0f", alignment='center'),
+                'Avg Price': st.column_config.NumberColumn('Avg Price', min_value=0, format="%.2f", alignment='center'),
+                'LTP (CSV)': st.column_config.NumberColumn('LTP (CSV)', disabled=True, format="%.2f", alignment='center'),
+                'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f", alignment='center'),
+                'Cur Value': st.column_config.NumberColumn('Cur Value', disabled=True, format="₹%.2f", alignment='center'),
+                'P&L': st.column_config.NumberColumn('P&L', disabled=True, format="₹%.2f", alignment='center'),
+                'P&L %': st.column_config.NumberColumn('P&L %', disabled=True, format="%.2f%%", alignment='center'),
+                'Recommendation': st.column_config.TextColumn('Recommendation', disabled=True, alignment='center'),
+                'Criteria Met': st.column_config.TextColumn('Criteria Met', disabled=True, alignment='center'),
+                'Delete': st.column_config.CheckboxColumn('Delete', alignment='center')
+            }
 
-    # Configure column settings
-    column_config = {
-        'Stock': st.column_config.TextColumn('Stock', disabled=True),
-        'Qty': st.column_config.NumberColumn('Qty', min_value=0, step=1, format="%.0f"),
-        'Avg Price': st.column_config.NumberColumn('Avg Price', min_value=0, format="%.2f"),
-        'LTP (CSV)': st.column_config.NumberColumn('LTP (CSV)', disabled=True, format="%.2f"),
-        'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
-        'Cur Value': st.column_config.NumberColumn('Cur Value', disabled=True, format="₹%.2f"),
-        'P&L': st.column_config.NumberColumn('P&L', disabled=True, format="₹%.2f"),
-        'P&L %': st.column_config.NumberColumn('P&L %', disabled=True, format="%.2f%%"),
-        'Recommendation': st.column_config.TextColumn('Recommendation', disabled=True),
-        'Criteria Met': st.column_config.TextColumn('Criteria Met', disabled=True),
-        'Delete': st.column_config.CheckboxColumn('Delete')
-    }
+            # Display the editable table with blue header (via CSS class)
+            st.markdown('<div class="holdings-table">', unsafe_allow_html=True)
+            edited_df = st.data_editor(
+                edit_df,
+                column_config=column_config,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
 
-    # Display the editable table
-    edited_df = st.data_editor(
-        edit_df,
-        column_config=column_config,
-        use_container_width=True,
-        hide_index=True,
-        num_rows="fixed"
-    )
+            # Check for changes (Qty or Avg Price) and update holdings_df
+            changes_made = False
+            for col in ['Qty', 'Avg Price']:
+                if col in edited_df.columns and not edited_df[col].equals(edit_df[col]):
+                    changes_made = True
+                    break
 
-    # Check for changes (Qty or Avg Price) and update holdings_df
-    changes_made = False
-    # Compare edited_df with original portfolio_df (excluding Delete column)
-    for col in ['Qty', 'Avg Price']:
-        if not edited_df[col].equals(edit_df[col]):
-            changes_made = True
-            break
+            if changes_made:
+                # Update holdings_df with new values (skip Sl.No column)
+                for idx, row in edited_df.iterrows():
+                    stock_name = row['Stock']
+                    mask = st.session_state.holdings_df['Instrument'] == stock_name
+                    if mask.any():
+                        st.session_state.holdings_df.loc[mask, 'Qty'] = row['Qty']
+                        st.session_state.holdings_df.loc[mask, 'Avg Price'] = row['Avg Price']
+                save_holdings(st.session_state.holdings_df)
+                st.session_state.portfolio_df = None  # Force recompute
+                st.rerun()
 
-    if changes_made:
-        # Update holdings_df with new values
-        for idx, row in edited_df.iterrows():
-            stock_name = row['Stock']
-            # Find the corresponding row in holdings_df
-            mask = st.session_state.holdings_df['Instrument'] == stock_name
-            if mask.any():
-                st.session_state.holdings_df.loc[mask, 'Qty'] = row['Qty']
-                st.session_state.holdings_df.loc[mask, 'Avg Price'] = row['Avg Price']
-        save_holdings(st.session_state.holdings_df)
-        st.session_state.portfolio_df = None  # Force recompute
-        st.rerun()
+            # Handle deletions
+            selected_for_deletion = edited_df[edited_df['Delete'] == True]
+            if not selected_for_deletion.empty:
+                st.warning(f"{len(selected_for_deletion)} stock(s) selected for deletion.")
+                if st.button("🗑️ Delete Selected", type="primary"):
+                    for _, row in selected_for_deletion.iterrows():
+                        stock_name = row['Stock']
+                        # Add to sold history
+                        sold_entry = {
+                            'Stock': stock_name,
+                            'Qty': row['Qty'],
+                            'Avg Price': row['Avg Price'],
+                            'Sell Price': row['Current Price'],
+                            'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
+                            'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
+                        }
+                        st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
+                        # Remove from holdings
+                        st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != stock_name].reset_index(drop=True)
+                    save_sold(st.session_state.sold_history)
+                    save_holdings(st.session_state.holdings_df)
+                    st.session_state.portfolio_df = None
+                    st.rerun()
 
-    # Handle deletions
-    selected_for_deletion = edited_df[edited_df['Delete'] == True]
-    if not selected_for_deletion.empty:
-        st.warning(f"{len(selected_for_deletion)} stock(s) selected for deletion.")
-        if st.button("🗑️ Delete Selected", type="primary"):
-            for _, row in selected_for_deletion.iterrows():
-                stock_name = row['Stock']
-                # Add to sold history
-                sold_entry = {
-                    'Stock': stock_name,
-                    'Qty': row['Qty'],
-                    'Avg Price': row['Avg Price'],
-                    'Sell Price': row['Current Price'],
-                    'Sell Date': datetime.now().date().strftime('%Y-%m-%d'),
-                    'P&L': row['P&L'] if not pd.isna(row['P&L']) else 0
-                }
-                st.session_state.sold_history = pd.concat([st.session_state.sold_history, pd.DataFrame([sold_entry])], ignore_index=True)
-                # Remove from holdings
-                st.session_state.holdings_df = st.session_state.holdings_df[st.session_state.holdings_df['Instrument'] != stock_name].reset_index(drop=True)
-            save_sold(st.session_state.sold_history)
-            save_holdings(st.session_state.holdings_df)
-            st.session_state.portfolio_df = None
-            st.rerun()
-
-    # Display sold history
-    st.markdown("#### Sold History")
-    if not st.session_state.sold_history.empty:
-        st.dataframe(st.session_state.sold_history, width='stretch')
+            # Display sold history
+            st.markdown("#### Sold History")
+            if not st.session_state.sold_history.empty:
+                st.dataframe(st.session_state.sold_history, width='stretch')
+            else:
+                st.info("No sold stocks yet.")
+        else:
+            st.info("No holdings data available.")
     else:
-        st.info("No sold stocks yet.")
-else:
-    st.info("No holdings data. Please add stocks using the section below.")
+        st.info("No holdings data. Please add stocks using the section below.")
+
     # ------------------------------
     # INPUT SECTION
     # ------------------------------
@@ -1468,4 +1480,3 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
-
