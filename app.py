@@ -740,7 +740,6 @@ def swing_breakout_signal(df, name):
     except Exception:
         return None
 
-# ========== NEW: Intraday Breakout & Breakdown Screener ==========
 def intraday_breakout_breakdown_signal(name):
     """Intraday Breakout/Breakdown Screener using 5-min data."""
     ticker = ALL_STOCKS[name]
@@ -769,7 +768,7 @@ def intraday_breakout_breakdown_signal(name):
         # Conditions for Breakout (up)
         if (current_close > current_vwap and
             current_rsi > 55 and
-            current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
+            (current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False) and
             current_close > prev_high):
             return {
                 'Stock': name,
@@ -785,7 +784,7 @@ def intraday_breakout_breakdown_signal(name):
         # Conditions for Breakdown (down)
         elif (current_close < current_vwap and
               current_rsi < 45 and
-              current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False and
+              (current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False) and
               current_close < prev_low):
             return {
                 'Stock': name,
@@ -801,7 +800,6 @@ def intraday_breakout_breakdown_signal(name):
         return None
     except Exception:
         return None
-# ==================================================================
 
 def ai_swing_signal(df, name):
     if df.empty or len(df) < 50:
@@ -1239,7 +1237,6 @@ def main_app():
 
         if intraday_signals:
             intraday_df = pd.DataFrame(intraday_signals)
-            # Reorder columns for clarity
             cols = ['Stock', 'Type', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
             intraday_df = intraday_df[[c for c in cols if c in intraday_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY SIGNAL</span>', unsafe_allow_html=True)
@@ -1400,7 +1397,9 @@ def main_app():
         with col1:
             st.subheader("Portfolio Allocation by Value")
             if not st.session_state.portfolio_df.empty:
-                fig = px.pie(st.session_state.portfolio_df, values='Cur Value', names='Stock')
+                # Ensure numeric for Plotly
+                cur_val = pd.to_numeric(st.session_state.portfolio_df['Cur Value'], errors='coerce')
+                fig = px.pie(st.session_state.portfolio_df, values=cur_val, names='Stock')
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig, use_container_width=True)
         with col2:
@@ -1567,5 +1566,3 @@ if not st.session_state.authenticated:
     show_login()
 else:
     main_app()
-
-
