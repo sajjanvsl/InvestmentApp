@@ -657,6 +657,7 @@ def train_simple_model(df):
 # ------------------------------
 # SCREENER FUNCTIONS (return only signal dict, no criteria)
 # ------------------------------
+# === UPDATED: Swing Pullback (relaxed) ===
 def swing_pullback_signal(df, name):
     if df.empty or len(df) < 50:
         return None
@@ -674,13 +675,14 @@ def swing_pullback_signal(df, name):
         current_volume = volume.iloc[-1]
         current_vol_sma = volume_sma20.iloc[-1]
 
+        # Relaxed conditions
         cond1 = current_close > current_ema50
         cond2 = current_ema20 > current_ema50
-        cond3 = current_close <= 1.02 * current_ema20
-        cond4 = current_rsi > 40
-        cond5 = current_rsi < 60
-        cond6 = current_volume > 1.2 * current_vol_sma if current_vol_sma > 0 else False
-        cond7 = current_close > 100
+        cond3 = current_close <= 1.03 * current_ema20   # within 3% of 20 EMA
+        cond4 = current_rsi > 30                         # wider RSI range
+        cond5 = current_rsi < 70
+        cond6 = current_volume > current_vol_sma if current_vol_sma > 0 else False   # any increase
+        cond7 = current_close > 50                        # lower price threshold
 
         if cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7:
             return {
@@ -970,23 +972,21 @@ def ai_intraday_sell_signal(df, name):
 
 def intraday_picks():
     picks = []
-    stock_signals = {}  # store the best signal per stock
+    stock_signals = {}
     for name, ticker in ALL_STOCKS.items():
         df = get_price_data(ticker)
         buy_sig = ai_intraday_buy_signal(df, name)
         if buy_sig:
             buy_sig['Signal'] = 'BUY'
-            stock_signals[name] = buy_sig  # start with buy
+            stock_signals[name] = buy_sig
         sell_sig = ai_intraday_sell_signal(df, name)
         if sell_sig:
             sell_sig['Signal'] = 'SELL'
             if name in stock_signals:
-                # keep the one with higher score
                 if sell_sig['Score'] > stock_signals[name]['Score']:
                     stock_signals[name] = sell_sig
             else:
                 stock_signals[name] = sell_sig
-    # convert dict to list
     picks = list(stock_signals.values())
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
@@ -1140,10 +1140,10 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Swing Pullback -----
+    # ----- Tab 2: Swing Pullback (updated) -----
     with screener_tab2:
         st.markdown("## 📉 Swing Pullback Screener")
-        st.caption("High probability pullback opportunities.")
+        st.caption("Relaxed pullback opportunities: uptrend, close near 20 EMA, RSI 30‑70, volume any increase, price > 50.")
         with st.spinner("Scanning for pullback opportunities..."):
             pullback_data = []
             total_stocks = len(ALL_STOCKS)
@@ -1162,12 +1162,12 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP PULLBACK</span>', unsafe_allow_html=True)
             st.dataframe(pullback_df, width='stretch')
         else:
-            no_stocks_message("Swing Pullback Screener", "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close ≤ 1.02 × 20 EMA<br>• RSI between 40-60<br>• Volume > 1.2× average<br>• Price > 100")
+            no_stocks_message("Swing Pullback Screener", "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close ≤ 1.03 × 20 EMA<br>• RSI between 30-70<br>• Volume > 1.0× average<br>• Price > 50")
 
-    # ----- Tab 3: Fundamental Breakout -----
+    # ----- Tab 3: Fundamental Breakout (updated) -----
     with screener_tab3:
         st.markdown("## 📈 Fundamental Breakout Screener")
-        st.caption("Stocks meeting: Price >1000, Mkt Cap >1000 Cr, Sales & Profit growth >50%, ROCE >12%, P/E > 20 (industry proxy).")
+        st.caption("Stocks meeting: Price >500, Mkt Cap >500 Cr, Sales & Profit growth >20%, ROCE >10%, P/E > 15.")
         with st.spinner("Scanning for fundamental breakouts..."):
             breakout_data = []
             total_stocks = len(ALL_STOCKS)
@@ -1188,12 +1188,13 @@ def main_app():
                 profit_growth = fund.get('profit_growth_3y')
                 roce = fund.get('roce')
                 pe = fund.get('info', {}).get('trailingPE')
-                cond1 = current_price > 1000
-                cond2 = market_cap > 1000 if not pd.isna(market_cap) else False
-                cond3 = sales_growth > 50 if not pd.isna(sales_growth) else False
-                cond4 = profit_growth > 50 if not pd.isna(profit_growth) else False
-                cond5 = roce > 12 if not pd.isna(roce) else False
-                cond6 = pe > 20 if not pd.isna(pe) else False
+                # New relaxed thresholds
+                cond1 = current_price > 500
+                cond2 = market_cap > 500 if not pd.isna(market_cap) else False
+                cond3 = sales_growth > 20 if not pd.isna(sales_growth) else False
+                cond4 = profit_growth > 20 if not pd.isna(profit_growth) else False
+                cond5 = roce > 10 if not pd.isna(roce) else False
+                cond6 = pe > 15 if not pd.isna(pe) else False
                 if cond1 and cond2 and cond3 and cond4 and cond5 and cond6:
                     breakout_data.append({
                         'Stock': name,
@@ -1217,9 +1218,9 @@ def main_app():
                 'ROCE (%)': '{:.2f}%'
             }, na_rep='-'), width='stretch')
         else:
-            no_stocks_message("Fundamental Breakout Screener", "• Price > 1000<br>• Mkt Cap > 1000 Cr<br>• Sales growth > 50%<br>• Profit growth > 50%<br>• ROCE > 12%<br>• P/E > 20 (Industry proxy)")
+            no_stocks_message("Fundamental Breakout Screener", "• Price > 500<br>• Mkt Cap > 500 Cr<br>• Sales growth > 20%<br>• Profit growth > 20%<br>• ROCE > 10%<br>• P/E > 15")
 
-    # ----- Tab 4: Intraday Breakout & Breakdown (5-min) -----
+    # ----- Tab 4: Intraday Breakout & Breakdown (unchanged) -----
     with screener_tab4:
         st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
         st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
@@ -1248,7 +1249,7 @@ def main_app():
                 "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
             )
 
-    # ----- Tab 5: AI Intraday Picks (BUY & SELL) -----
+    # ----- Tab 5: AI Intraday Picks (unchanged) -----
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
         st.caption("AI‑powered intraday picks – only the highest‑confidence signal per stock is shown. Higher score = stronger signal.")
@@ -1266,7 +1267,7 @@ def main_app():
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (with editable table, Sl.No, blue headers)
+    # HOLDINGS SECTION (unchanged)
     # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
@@ -1397,7 +1398,6 @@ def main_app():
         with col1:
             st.subheader("Portfolio Allocation by Value")
             if not st.session_state.portfolio_df.empty:
-                # Ensure numeric for Plotly
                 cur_val = pd.to_numeric(st.session_state.portfolio_df['Cur Value'], errors='coerce')
                 fig = px.pie(st.session_state.portfolio_df, values=cur_val, names='Stock')
                 fig.update_traces(textposition='inside', textinfo='percent+label')
@@ -1410,7 +1410,6 @@ def main_app():
         st.subheader("Your Holdings – Combined Screener Analysis")
         st.caption("Edit Qty and Avg Price directly in the table. Check 'Delete' and click 'Delete Selected' to sell stock(s).")
 
-        # Prepare the DataFrame for editing with Sl.No column
         if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
             edit_df = st.session_state.portfolio_df.copy()
             edit_df.insert(0, 'Sl.No', range(1, len(edit_df) + 1))
