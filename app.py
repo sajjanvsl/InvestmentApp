@@ -298,7 +298,7 @@ if 'username' not in st.session_state:
     st.session_state.username = None
 
 # ------------------------------
-# MASTER STOCK LIST (all NSE stocks)
+# MASTER STOCK LIST (all NSE stocks, including MCX)
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -333,7 +333,8 @@ ALL_STOCKS = {
     "EPACKPEB": "EPACKPEB.NS",
     "NATPLASTI": "NATPLASTI.NS",
     "SETL": "SETL.NS",
-    "TDPOWERSYS": "TDPOWERSYS.NS"
+    "TDPOWERSYS": "TDPOWERSYS.NS",
+    "MCX": "MCX.NS"          # Added MCX
 }
 
 # ------------------------------
@@ -655,46 +656,49 @@ def train_simple_model(df):
         return None, None
 
 # ------------------------------
-# SCREENER FUNCTIONS (return only signal dict, no criteria)
+# SCREENER FUNCTIONS
 # ------------------------------
-# === UPDATED: Swing Pullback (relaxed) ===
-def swing_pullback_signal(df, name):
+
+# === NEW: Fundamental Pullback (based on user's formula) ===
+def fundamental_pullback_signal(df, name):
+    """Screener based on: Net profit > 200, 5Y sales growth > 10, 5Y profit growth > 15, ROCE > 20, D/E < 0.2, Public holding < 30."""
     if df.empty or len(df) < 50:
         return None
     try:
-        close = df['Close'].astype(float)
-        volume = df['Volume'].astype(float)
-        ema20 = close.ewm(span=20, adjust=False).mean()
-        ema50 = close.ewm(span=50, adjust=False).mean()
-        rsi = RSIIndicator(close).rsi()
-        volume_sma20 = volume.rolling(20).mean()
-        current_close = close.iloc[-1]
-        current_ema20 = ema20.iloc[-1]
-        current_ema50 = ema50.iloc[-1]
-        current_rsi = rsi.iloc[-1]
-        current_volume = volume.iloc[-1]
-        current_vol_sma = volume_sma20.iloc[-1]
+        # Fetch fundamental data
+        fund = get_fundamental_data(ALL_STOCKS[name])
+        if fund is None:
+            return None
+        
+        net_profit = fund.get('net_profit')
+        sales_growth_5y = fund.get('sales_growth_5y')
+        profit_growth_5y = fund.get('profit_growth_5y')
+        roce = fund.get('roce')
+        de_ratio = fund.get('de_ratio')
+        promoter = fund.get('promoter')  # promoter holding
+        # Public holding = 100 - promoter (if promoter is available)
+        public_holding = 100 - promoter if not pd.isna(promoter) else np.nan
+        
+        cond1 = net_profit > 200 if not pd.isna(net_profit) else False
+        cond2 = sales_growth_5y > 10 if not pd.isna(sales_growth_5y) else False
+        cond3 = profit_growth_5y > 15 if not pd.isna(profit_growth_5y) else False
+        cond4 = roce > 20 if not pd.isna(roce) else False
+        cond5 = de_ratio < 0.2 if not pd.isna(de_ratio) else False
+        cond6 = public_holding < 30 if not pd.isna(public_holding) else False
 
-        # Relaxed conditions
-        cond1 = current_close > current_ema50
-        cond2 = current_ema20 > current_ema50
-        cond3 = current_close <= 1.03 * current_ema20   # within 3% of 20 EMA
-        cond4 = current_rsi > 30                         # wider RSI range
-        cond5 = current_rsi < 70
-        cond6 = current_volume > current_vol_sma if current_vol_sma > 0 else False   # any increase
-        cond7 = current_close > 50                        # lower price threshold
-
-        if cond1 and cond2 and cond3 and cond4 and cond5 and cond6 and cond7:
+        if cond1 and cond2 and cond3 and cond4 and cond5 and cond6:
+            # Use current price from price data for entry/target/stop
+            close = df['Close'].astype(float)
+            current_close = close.iloc[-1]
             return {
                 'Stock': name,
-                'Close': round(current_close, 2),
-                'RSI': round(current_rsi, 1),
-                '20 EMA': round(current_ema20, 2),
-                '50 EMA': round(current_ema50, 2),
-                'Vol Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
-                'Entry': round(current_close, 2),
-                'Target': round(current_ema20 * 1.05, 2),
-                'Stop Loss': round(current_ema50 * 0.98, 2)
+                'Net Profit (Cr)': round(net_profit, 2),
+                'Sales Gr 5Y (%)': round(sales_growth_5y, 2),
+                'Profit Gr 5Y (%)': round(profit_growth_5y, 2),
+                'ROCE (%)': round(roce, 2),
+                'D/E': round(de_ratio, 2),
+                'Public Holding (%)': round(public_holding, 2),
+                'Price': round(current_close, 2)
             }
         return None
     except Exception:
@@ -1103,7 +1107,7 @@ def main_app():
     # Tabs
     screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5 = st.tabs([
         "🤖 AI Swing Scanner", 
-        "📉 Swing Pullback", 
+        "📈 Fundamental Pullback",   # renamed tab
         "📈 Fundamental Breakout",
         "⚡ Intraday Breakout & Breakdown (5-min)",
         "🤖 AI Intraday Picks"
@@ -1140,31 +1144,41 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Swing Pullback (updated) -----
+    # ----- Tab 2: Fundamental Pullback (new) -----
     with screener_tab2:
-        st.markdown("## 📉 Swing Pullback Screener")
-        st.caption("Relaxed pullback opportunities: uptrend, close near 20 EMA, RSI 30‑70, volume any increase, price > 50.")
-        with st.spinner("Scanning for pullback opportunities..."):
+        st.markdown("## 📈 Fundamental Pullback Screener")
+        st.caption("Stocks with: Net Profit > 200 Cr, 5Y Sales growth > 10%, 5Y Profit growth > 15%, ROCE > 20%, D/E < 0.2, Public Holding < 30%.")
+
+        with st.spinner("Scanning for fundamental pullback opportunities..."):
             pullback_data = []
             total_stocks = len(ALL_STOCKS)
             progress_bar = st.progress(0, text="Scanning stocks...")
             for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
                 df = get_price_data(ticker)
-                sig = swing_pullback_signal(df, name)
+                sig = fundamental_pullback_signal(df, name)
                 if sig:
                     pullback_data.append(sig)
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
         if pullback_data:
             pullback_df = pd.DataFrame(pullback_data)
-            display_cols = ['Stock', 'Close', 'RSI', '20 EMA', '50 EMA', 'Vol Ratio', 'Entry', 'Target', 'Stop Loss']
-            pullback_df = pullback_df[[col for col in display_cols if col in pullback_df.columns]]
-            st.markdown('<span class="top-pick-badge">⭐ TOP PULLBACK</span>', unsafe_allow_html=True)
-            st.dataframe(pullback_df, width='stretch')
+            st.markdown('<span class="top-pick-badge">⭐ TOP FUNDAMENTAL PULLBACK</span>', unsafe_allow_html=True)
+            st.dataframe(pullback_df.style.format({
+                'Net Profit (Cr)': '₹{:.2f} Cr',
+                'Sales Gr 5Y (%)': '{:.2f}%',
+                'Profit Gr 5Y (%)': '{:.2f}%',
+                'ROCE (%)': '{:.2f}%',
+                'D/E': '{:.2f}',
+                'Public Holding (%)': '{:.2f}%',
+                'Price': '₹{:.2f}'
+            }, na_rep='-'), width='stretch')
         else:
-            no_stocks_message("Swing Pullback Screener", "• Close > 50 EMA<br>• 20 EMA > 50 EMA<br>• Close ≤ 1.03 × 20 EMA<br>• RSI between 30-70<br>• Volume > 1.0× average<br>• Price > 50")
+            no_stocks_message(
+                "Fundamental Pullback Screener",
+                "• Net Profit > 200 Cr<br>• 5Y Sales growth > 10%<br>• 5Y Profit growth > 15%<br>• ROCE > 20%<br>• D/E < 0.2<br>• Public Holding < 30%"
+            )
 
-    # ----- Tab 3: Fundamental Breakout (updated) -----
+    # ----- Tab 3: Fundamental Breakout -----
     with screener_tab3:
         st.markdown("## 📈 Fundamental Breakout Screener")
         st.caption("Stocks meeting: Price >500, Mkt Cap >500 Cr, Sales & Profit growth >20%, ROCE >10%, P/E > 15.")
@@ -1188,7 +1202,6 @@ def main_app():
                 profit_growth = fund.get('profit_growth_3y')
                 roce = fund.get('roce')
                 pe = fund.get('info', {}).get('trailingPE')
-                # New relaxed thresholds
                 cond1 = current_price > 500
                 cond2 = market_cap > 500 if not pd.isna(market_cap) else False
                 cond3 = sales_growth > 20 if not pd.isna(sales_growth) else False
@@ -1220,7 +1233,7 @@ def main_app():
         else:
             no_stocks_message("Fundamental Breakout Screener", "• Price > 500<br>• Mkt Cap > 500 Cr<br>• Sales growth > 20%<br>• Profit growth > 20%<br>• ROCE > 10%<br>• P/E > 15")
 
-    # ----- Tab 4: Intraday Breakout & Breakdown (unchanged) -----
+    # ----- Tab 4: Intraday Breakout & Breakdown -----
     with screener_tab4:
         st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
         st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
@@ -1249,7 +1262,7 @@ def main_app():
                 "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
             )
 
-    # ----- Tab 5: AI Intraday Picks (unchanged) -----
+    # ----- Tab 5: AI Intraday Picks -----
     with screener_tab5:
         st.markdown("## 🤖 AI Intraday Picks")
         st.caption("AI‑powered intraday picks – only the highest‑confidence signal per stock is shown. Higher score = stronger signal.")
@@ -1489,7 +1502,7 @@ def main_app():
         st.info("No holdings data. Please add stocks using the section below.")
 
     # ------------------------------
-    # INPUT SECTION
+    # INPUT SECTION (with fixed single stock handling)
     # ------------------------------
     st.markdown('<div class="input-section">', unsafe_allow_html=True)
     st.subheader("📁 Add Holdings")
@@ -1497,7 +1510,7 @@ def main_app():
     with col1:
         uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
     with col2:
-        single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA").strip().upper()
+        single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA or MCX").strip().upper()
 
     if uploaded_file is not None:
         try:
@@ -1509,6 +1522,8 @@ def main_app():
                 df_hold = raw_df.iloc[:, :8].copy()
                 df_hold.columns = ['Instrument', 'Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']
                 df_hold['Instrument'] = df_hold['Instrument'].astype(str).str.strip().str.upper()
+                # Remove any .NS suffix for consistency
+                df_hold['Instrument'] = df_hold['Instrument'].str.replace('.NS', '', regex=False)
                 df_hold = df_hold[df_hold['Instrument'].notna() & (df_hold['Instrument'] != '') & (df_hold['Instrument'] != 'NAN')]
                 for col in ['Qty', 'Avg Price', 'LTP', 'Cur Value', 'P&L', 'Net Chg %', 'Day Chg %']:
                     df_hold[col] = pd.to_numeric(df_hold[col], errors='coerce')
@@ -1525,9 +1540,11 @@ def main_app():
             st.error(f"Error reading CSV: {e}")
 
     if single_stock:
-        if single_stock in ALL_STOCKS:
+        # Remove any .NS suffix if user typed it
+        clean_stock = single_stock.replace('.NS', '').strip()
+        if clean_stock in ALL_STOCKS:
             new_row = pd.DataFrame({
-                'Instrument': [single_stock],
+                'Instrument': [clean_stock],
                 'Qty': [1],
                 'Avg Price': [np.nan],
                 'LTP': [np.nan],
@@ -1537,22 +1554,22 @@ def main_app():
                 'Day Chg %': [np.nan]
             })
             if st.session_state.holdings_df is not None:
-                if single_stock not in st.session_state.holdings_df['Instrument'].values:
+                if clean_stock not in st.session_state.holdings_df['Instrument'].values:
                     st.session_state.holdings_df = pd.concat([st.session_state.holdings_df, new_row], ignore_index=True)
                     save_holdings(st.session_state.holdings_df)
                     st.session_state.portfolio_df = None
-                    st.success(f"Added {single_stock}.")
+                    st.success(f"Added {clean_stock}.")
                     st.rerun()
                 else:
-                    st.warning(f"{single_stock} already in holdings.")
+                    st.warning(f"{clean_stock} already in holdings.")
             else:
                 st.session_state.holdings_df = new_row
                 save_holdings(st.session_state.holdings_df)
                 st.session_state.portfolio_df = None
-                st.success(f"Added {single_stock}.")
+                st.success(f"Added {clean_stock}.")
                 st.rerun()
         else:
-            st.error(f"{single_stock} not found in master list.")
+            st.error(f"{clean_stock} not found in master list. Please check the symbol (e.g., MCX, CIPLA).")
 
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
