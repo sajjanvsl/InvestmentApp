@@ -125,6 +125,15 @@ st.markdown("""
         font-weight: 600;
         display: inline-block;
     }
+    .fairvalue-tag {
+        background: #cce5ff;
+        color: #004085;
+        padding: 0.25rem 0.8rem;
+        border-radius: 30px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        display: inline-block;
+    }
     .criteria-pass {
         color: #28a745;
         font-weight: 600;
@@ -659,10 +668,53 @@ def train_simple_model(df):
 # SCREENER FUNCTIONS
 # ------------------------------
 
-# === NEW: Fundamental Pullback (based on user's formula) ===
-def fundamental_pullback_signal(df, name):
-    """Screener based on: Net profit > 200, 5Y sales growth > 10, 5Y profit growth > 15, ROCE > 20, D/E < 0.2, Public holding < 30."""
-    if df.empty or len(df) < 50:
+# === NEW: Fair Value Screener (DCF-based) ===
+def calculate_fair_value(fund):
+    """Calculate intrinsic value using a simplified DCF model."""
+    try:
+        if fund is None:
+            return None
+        
+        # Get required data
+        fcf = fund.get('avg_fcf')  # Average FCF in Cr
+        growth_rate = fund.get('profit_growth_5y')  # 5-year profit growth
+        if pd.isna(growth_rate) or growth_rate <= 0:
+            growth_rate = 10  # default 10% if no data
+        
+        # Parameters for DCF
+        projection_years = 5
+        discount_rate = 12  # 12% required return
+        terminal_growth = 4  # 4% perpetual growth
+        
+        # Project FCF for next 5 years
+        projected_fcf = []
+        for i in range(1, projection_years + 1):
+            projected_fcf.append(fcf * ((1 + growth_rate/100) ** i))
+        
+        # Calculate present value of projected FCF
+        pv_fcf = sum([fcf / ((1 + discount_rate/100) ** (i+1)) for i, fcf in enumerate(projected_fcf)])
+        
+        # Calculate terminal value
+        terminal_fcf = projected_fcf[-1] * (1 + terminal_growth/100)
+        terminal_value = terminal_fcf / ((discount_rate/100) - (terminal_growth/100))
+        pv_terminal = terminal_value / ((1 + discount_rate/100) ** projection_years)
+        
+        # Total intrinsic value (in Cr)
+        intrinsic_value_cr = pv_fcf + pv_terminal
+        
+        # Per share value
+        shares_outstanding = fund.get('info', {}).get('sharesOutstanding', 0)
+        if shares_outstanding > 0:
+            intrinsic_value_per_share = (intrinsic_value_cr * 1e7) / shares_outstanding
+            return intrinsic_value_per_share
+        else:
+            return None
+    except Exception:
+        return None
+
+def fair_value_signal(df, name):
+    """Identify stocks trading at least 15% below fair value."""
+    if df.empty:
         return None
     try:
         # Fetch fundamental data
@@ -670,35 +722,30 @@ def fundamental_pullback_signal(df, name):
         if fund is None:
             return None
         
-        net_profit = fund.get('net_profit')
-        sales_growth_5y = fund.get('sales_growth_5y')
-        profit_growth_5y = fund.get('profit_growth_5y')
-        roce = fund.get('roce')
-        de_ratio = fund.get('de_ratio')
-        promoter = fund.get('promoter')  # promoter holding
-        # Public holding = 100 - promoter (if promoter is available)
-        public_holding = 100 - promoter if not pd.isna(promoter) else np.nan
+        # Get current price
+        close = df['Close'].astype(float)
+        current_price = close.iloc[-1]
         
-        cond1 = net_profit > 200 if not pd.isna(net_profit) else False
-        cond2 = sales_growth_5y > 10 if not pd.isna(sales_growth_5y) else False
-        cond3 = profit_growth_5y > 15 if not pd.isna(profit_growth_5y) else False
-        cond4 = roce > 20 if not pd.isna(roce) else False
-        cond5 = de_ratio < 0.2 if not pd.isna(de_ratio) else False
-        cond6 = public_holding < 30 if not pd.isna(public_holding) else False
-
-        if cond1 and cond2 and cond3 and cond4 and cond5 and cond6:
-            # Use current price from price data for entry/target/stop
-            close = df['Close'].astype(float)
-            current_close = close.iloc[-1]
+        # Calculate fair value
+        fair_value = calculate_fair_value(fund)
+        if fair_value is None:
+            return None
+        
+        # Calculate discount
+        discount = ((fair_value - current_price) / fair_value) * 100
+        
+        # Only include if trading at least 15% below fair value
+        if discount >= 15:
             return {
                 'Stock': name,
-                'Net Profit (Cr)': round(net_profit, 2),
-                'Sales Gr 5Y (%)': round(sales_growth_5y, 2),
-                'Profit Gr 5Y (%)': round(profit_growth_5y, 2),
-                'ROCE (%)': round(roce, 2),
-                'D/E': round(de_ratio, 2),
-                'Public Holding (%)': round(public_holding, 2),
-                'Price': round(current_close, 2)
+                'Current Price': round(current_price, 2),
+                'Fair Value': round(fair_value, 2),
+                'Discount %': round(discount, 1),
+                'Upside': round(discount, 1),
+                'Signal': 'BUY ON DIP',
+                'FCF (Cr)': round(fund.get('avg_fcf', 0), 2),
+                'Growth 5Y %': round(fund.get('profit_growth_5y', 0), 1),
+                'ROCE %': round(fund.get('roce', 0), 1)
             }
         return None
     except Exception:
@@ -1107,7 +1154,7 @@ def main_app():
     # Tabs
     screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5 = st.tabs([
         "🤖 AI Swing Scanner", 
-        "📈 Fundamental Pullback",   # renamed tab
+        "💰 Fair Value (Buy on Dip)",   # renamed tab
         "📈 Fundamental Breakout",
         "⚡ Intraday Breakout & Breakdown (5-min)",
         "🤖 AI Intraday Picks"
@@ -1144,38 +1191,40 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Fundamental Pullback (new) -----
+    # ----- Tab 2: Fair Value Screener (new) -----
     with screener_tab2:
-        st.markdown("## 📈 Fundamental Pullback Screener")
-        st.caption("Stocks with: Net Profit > 200 Cr, 5Y Sales growth > 10%, 5Y Profit growth > 15%, ROCE > 20%, D/E < 0.2, Public Holding < 30%.")
+        st.markdown("## 💰 Fair Value Screener")
+        st.caption("Stocks trading at least 15% below estimated fair value (simplified DCF model).")
 
-        with st.spinner("Scanning for fundamental pullback opportunities..."):
-            pullback_data = []
+        with st.spinner("Scanning for undervalued stocks..."):
+            fair_value_data = []
             total_stocks = len(ALL_STOCKS)
             progress_bar = st.progress(0, text="Scanning stocks...")
             for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
                 df = get_price_data(ticker)
-                sig = fundamental_pullback_signal(df, name)
+                sig = fair_value_signal(df, name)
                 if sig:
-                    pullback_data.append(sig)
+                    fair_value_data.append(sig)
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
-        if pullback_data:
-            pullback_df = pd.DataFrame(pullback_data)
-            st.markdown('<span class="top-pick-badge">⭐ TOP FUNDAMENTAL PULLBACK</span>', unsafe_allow_html=True)
-            st.dataframe(pullback_df.style.format({
-                'Net Profit (Cr)': '₹{:.2f} Cr',
-                'Sales Gr 5Y (%)': '{:.2f}%',
-                'Profit Gr 5Y (%)': '{:.2f}%',
-                'ROCE (%)': '{:.2f}%',
-                'D/E': '{:.2f}',
-                'Public Holding (%)': '{:.2f}%',
-                'Price': '₹{:.2f}'
+        if fair_value_data:
+            fair_value_df = pd.DataFrame(fair_value_data)
+            # Sort by discount (highest first)
+            fair_value_df = fair_value_df.sort_values('Discount %', ascending=False)
+            st.markdown('<span class="top-pick-badge">⭐ BEST VALUE</span>', unsafe_allow_html=True)
+            st.dataframe(fair_value_df.style.format({
+                'Current Price': '₹{:.2f}',
+                'Fair Value': '₹{:.2f}',
+                'Discount %': '{:.1f}%',
+                'Upside': '{:.1f}%',
+                'FCF (Cr)': '₹{:.2f} Cr',
+                'Growth 5Y %': '{:.1f}%',
+                'ROCE %': '{:.1f}%'
             }, na_rep='-'), width='stretch')
         else:
             no_stocks_message(
-                "Fundamental Pullback Screener",
-                "• Net Profit > 200 Cr<br>• 5Y Sales growth > 10%<br>• 5Y Profit growth > 15%<br>• ROCE > 20%<br>• D/E < 0.2<br>• Public Holding < 30%"
+                "Fair Value Screener",
+                "• Simplified DCF model<br>• 5‑year FCF projections<br>• 12% discount rate<br>• 4% terminal growth<br>• Requires at least 15% discount"
             )
 
     # ----- Tab 3: Fundamental Breakout -----
