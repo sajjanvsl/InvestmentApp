@@ -3,9 +3,9 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 
-st.set_page_config(page_title="Pro Investment Dashboard", layout="wide")
+st.set_page_config(page_title="Ultimate AI Portfolio", layout="wide")
 
-st.title("🚀 Pro AI Investment Dashboard")
+st.title("🚀 Ultimate AI Investment System")
 
 # -----------------------------
 # Session State
@@ -20,69 +20,80 @@ if "portfolio" not in st.session_state:
 # -----------------------------
 st.sidebar.header("📥 Add Stock")
 
-stock = st.sidebar.text_input("Stock Symbol (e.g. TCS.NS)")
+stock = st.sidebar.text_input("Stock (e.g. TCS.NS)")
 qty = st.sidebar.number_input("Quantity", min_value=1)
-buy_price = st.sidebar.number_input("Buy Price", min_value=0.0)
+buy = st.sidebar.number_input("Buy Price", min_value=0.0)
 
-if st.sidebar.button("Add"):
-    if stock:
-        new_row = pd.DataFrame([[stock.upper(), qty, buy_price]],
-                               columns=["Stock", "Quantity", "Buy Price"])
-        st.session_state.portfolio = pd.concat(
-            [st.session_state.portfolio, new_row],
-            ignore_index=True
-        )
+if st.sidebar.button("Add Stock"):
+    new = pd.DataFrame([[stock.upper(), qty, buy]],
+                       columns=["Stock", "Quantity", "Buy Price"])
+    st.session_state.portfolio = pd.concat(
+        [st.session_state.portfolio, new], ignore_index=True
+    )
 
 # -----------------------------
-# Functions
+# FUNCTIONS
 # -----------------------------
-def get_stock_data(symbol):
+def fetch_data(symbol):
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="1y")
-        info = ticker.info
+        t = yf.Ticker(symbol)
+        hist = t.history(period="1y")
+        info = t.info
 
         price = hist["Close"].iloc[-1]
         eps = info.get("trailingEps", None)
         pe = info.get("trailingPE", None)
+        sector = info.get("sector", "Unknown")
 
-        return hist, price, eps, pe
+        return hist, price, eps, pe, sector
     except:
-        return None, None, None, None
+        return None, None, None, None, "Unknown"
 
 
-def calculate_rsi(series, window=14):
+def RSI(series, n=14):
     delta = series.diff()
-    gain = delta.clip(lower=0).rolling(window).mean()
-    loss = (-delta.clip(upper=0)).rolling(window).mean()
+    gain = delta.clip(lower=0).rolling(n).mean()
+    loss = (-delta.clip(upper=0)).rolling(n).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
 
 def fair_value(eps, growth=15):
-    if eps:
-        return eps * growth * 1.5
-    return None
+    return eps * growth * 1.5 if eps else None
 
 
-def signal_logic(price, fv, rsi):
-    if fv is None:
-        return "N/A"
+def ai_score(price, fv, rsi, ma50, ma200):
+    score = 0
 
-    if price < fv * 0.8 and rsi < 40:
+    if fv and price < fv:
+        score += 30
+    if rsi < 40:
+        score += 20
+    if price > ma50:
+        score += 20
+    if price > ma200:
+        score += 20
+    if fv and price < fv * 0.8:
+        score += 10
+
+    return score
+
+
+def decision(score):
+    if score >= 70:
         return "STRONG BUY"
-    elif price < fv:
+    elif score >= 50:
         return "BUY"
-    elif price > fv * 1.3:
-        return "SELL"
-    else:
+    elif score >= 30:
         return "HOLD"
+    else:
+        return "SELL"
 
 
 # -----------------------------
-# Portfolio Processing
+# MAIN DASHBOARD
 # -----------------------------
-st.subheader("📊 Portfolio Dashboard")
+st.subheader("📊 Portfolio Analysis")
 
 if not st.session_state.portfolio.empty:
 
@@ -90,104 +101,124 @@ if not st.session_state.portfolio.empty:
     results = []
 
     for _, row in df.iterrows():
-        hist, price, eps, pe = get_stock_data(row["Stock"])
+        hist, price, eps, pe, sector = fetch_data(row["Stock"])
 
         if hist is not None:
             invested = row["Buy Price"] * row["Quantity"]
             value = price * row["Quantity"]
             pnl = value - invested
 
-            rsi = calculate_rsi(hist["Close"]).iloc[-1]
+            rsi = RSI(hist["Close"]).iloc[-1]
             ma50 = hist["Close"].rolling(50).mean().iloc[-1]
             ma200 = hist["Close"].rolling(200).mean().iloc[-1]
 
             fv = fair_value(eps)
+            score = ai_score(price, fv, rsi, ma50, ma200)
+            signal = decision(score)
 
-            signal = signal_logic(price, fv, rsi)
+            stop_loss = price * 0.85
+            target = price * 1.4
 
         else:
-            invested = value = pnl = rsi = ma50 = ma200 = fv = 0
+            invested = value = pnl = rsi = ma50 = ma200 = fv = score = 0
             signal = "N/A"
+            sector = "Unknown"
+            stop_loss = target = 0
 
         results.append([
-            row["Stock"], row["Quantity"], row["Buy Price"],
-            price, invested, value, pnl, rsi, ma50, ma200, fv, signal
+            row["Stock"], sector, row["Quantity"], row["Buy Price"],
+            price, invested, value, pnl,
+            rsi, ma50, ma200, fv, score, signal,
+            stop_loss, target
         ])
 
     df_final = pd.DataFrame(results, columns=[
-        "Stock", "Qty", "Buy Price", "Current Price",
+        "Stock", "Sector", "Qty", "Buy Price", "Current Price",
         "Invested", "Value", "P/L",
         "RSI", "MA50", "MA200",
-        "Fair Value", "Signal"
+        "Fair Value", "AI Score", "Signal",
+        "Stop Loss", "Target"
     ])
 
     st.dataframe(df_final, use_container_width=True)
 
     # -----------------------------
-    # Metrics
+    # METRICS
     # -----------------------------
     total_inv = df_final["Invested"].sum()
     total_val = df_final["Value"].sum()
-    total_pnl = total_val - total_inv
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("💰 Invested", f"₹{total_inv:,.0f}")
-    c2.metric("📈 Value", f"₹{total_val:,.0f}")
-    c3.metric("🔥 Profit/Loss", f"₹{total_pnl:,.0f}")
+    st.metric("💰 Invested", f"₹{total_inv:,.0f}")
+    st.metric("📈 Value", f"₹{total_val:,.0f}")
+    st.metric("🔥 Profit", f"₹{total_val-total_inv:,.0f}")
 
     # -----------------------------
-    # Allocation %
+    # PORTFOLIO HEALTH
     # -----------------------------
-    st.subheader("📊 Allocation %")
+    st.subheader("🧠 Portfolio Health Score")
+
+    avg_score = df_final["AI Score"].mean()
+
+    if avg_score > 65:
+        st.success(f"Strong Portfolio ({avg_score:.0f}/100)")
+    elif avg_score > 45:
+        st.warning(f"Moderate Portfolio ({avg_score:.0f}/100)")
+    else:
+        st.error(f"Weak Portfolio ({avg_score:.0f}/100)")
+
+    # -----------------------------
+    # RISK (ALLOCATION)
+    # -----------------------------
+    st.subheader("⚠️ Risk Analysis")
 
     df_final["Allocation %"] = (df_final["Value"] / total_val) * 100
     st.bar_chart(df_final.set_index("Stock")["Allocation %"])
 
     # -----------------------------
-    # Stock Chart
+    # SECTOR DIVERSIFICATION
     # -----------------------------
-    st.subheader("📉 Technical Chart")
+    st.subheader("🏭 Sector Distribution")
 
-    selected = st.selectbox("Select Stock", df_final["Stock"])
-    hist, _, _, _ = get_stock_data(selected)
-
-    if hist is not None:
-        chart_df = pd.DataFrame({
-            "Close": hist["Close"],
-            "MA50": hist["Close"].rolling(50).mean(),
-            "MA200": hist["Close"].rolling(200).mean()
-        })
-        st.line_chart(chart_df)
+    sector_dist = df_final.groupby("Sector")["Value"].sum()
+    st.bar_chart(sector_dist)
 
     # -----------------------------
-    # Multibagger Screener Logic
+    # MULTIBAGGER FILTER
     # -----------------------------
-    st.subheader("🚀 Multibagger Candidates")
+    st.subheader("🚀 Multibagger Picks")
 
     multi = df_final[
-        (df_final["RSI"] < 50) &
-        (df_final["Current Price"] < df_final["Fair Value"])
+        (df_final["AI Score"] > 70) &
+        (df_final["RSI"] < 50)
     ]
 
-    if not multi.empty:
-        st.success("Potential Multibaggers Found")
-        st.dataframe(multi)
-    else:
-        st.info("No strong candidates now")
+    st.dataframe(multi)
 
     # -----------------------------
-    # Download
+    # REBALANCING SUGGESTION
+    # -----------------------------
+    st.subheader("⚖️ Rebalancing Suggestions")
+
+    over_alloc = df_final[df_final["Allocation %"] > 25]
+    if not over_alloc.empty:
+        st.warning("Reduce exposure in:")
+        st.write(over_alloc[["Stock", "Allocation %"]])
+    else:
+        st.success("Well balanced portfolio")
+
+    # -----------------------------
+    # DOWNLOAD
     # -----------------------------
     csv = df_final.to_csv(index=False).encode()
-    st.download_button("📥 Download Report", csv, "portfolio.csv")
+    st.download_button("📥 Download Report", csv, "ultimate_portfolio.csv")
 
 else:
-    st.info("Add stocks to begin")
+    st.info("Add stocks to start")
 
 # -----------------------------
-# Clear
+# CLEAR
 # -----------------------------
-if st.button("🧹 Clear Portfolio"):
+if st.button("🧹 Reset Portfolio"):
     st.session_state.portfolio = pd.DataFrame(
         columns=["Stock", "Quantity", "Buy Price"]
     )
