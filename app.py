@@ -1317,7 +1317,6 @@ def main_app():
         st.markdown("## 💰 Fair Value Analysis (DCF)")
         st.caption("Intrinsic value based on Discounted Cash Flow model.")
         st.info("This tab uses the full DCF model. For the simple EPS×Growth formula, see the last tab.")
-        # You can optionally add the full DCF analysis here if needed.
 
     # ----- Tab 3: Fundamental Breakout (placeholder) -----
     with screener_tab3:
@@ -1367,10 +1366,11 @@ def main_app():
         else:
             no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
-    # ----- Tab 6: Custom Fair Value (EPS × Growth) in Table Format -----
+    # ----- Tab 6: Custom Fair Value (EPS × Growth) with growth cap -----
     with custom_fv_tab:
         st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
         st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
+        st.caption("Growth rate is capped at 50% to avoid unrealistic values.")
 
         # List of stocks to analyze
         stock_list = [
@@ -1400,12 +1400,14 @@ def main_app():
                 if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
                     eps = net_profit / shares
 
-            # Growth (prefer 5‑year, then 3‑year, else 10%)
-            growth = fund.get('profit_growth_5y', np.nan)
+            # Growth – prefer 3‑year, then 5‑year, then default 10%, capped at 50%
+            growth = fund.get('profit_growth_3y', np.nan)
             if pd.isna(growth) or growth <= 0:
-                growth = fund.get('profit_growth_3y', np.nan)
+                growth = fund.get('profit_growth_5y', np.nan)
             if pd.isna(growth) or growth <= 0:
                 growth = 10
+            # Cap growth at 50% to avoid extreme valuations
+            growth = min(growth, 50)
 
             if pd.isna(eps) or eps <= 0:
                 continue
@@ -1438,7 +1440,7 @@ def main_app():
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (with EPS×Growth Buy Price)
+    # HOLDINGS SECTION (with EPS×Growth Buy Price, growth capped)
     # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
@@ -1486,7 +1488,7 @@ def main_app():
                 else:
                     sell_count += 1
 
-                # Compute EPS×Growth Buy Price (80% of EPS × Growth × 1.5)
+                # Compute EPS×Growth Buy Price (capped growth)
                 eps_growth_buy = None
                 if fund:
                     eps = fund.get('info', {}).get('trailingEps', np.nan)
@@ -1495,11 +1497,12 @@ def main_app():
                         shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
                         if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
                             eps = net_profit / shares
-                    growth = fund.get('profit_growth_5y', np.nan)
+                    growth = fund.get('profit_growth_3y', np.nan)
                     if pd.isna(growth) or growth <= 0:
-                        growth = fund.get('profit_growth_3y', np.nan)
+                        growth = fund.get('profit_growth_5y', np.nan)
                     if pd.isna(growth) or growth <= 0:
                         growth = 10
+                    growth = min(growth, 50)  # Cap growth
                     if not pd.isna(eps) and eps > 0:
                         fair_value = eps * growth * 1.5
                         eps_growth_buy = round(fair_value * 0.8, 2)
