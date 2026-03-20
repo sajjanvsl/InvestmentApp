@@ -311,16 +311,16 @@ class AlertSystem:
             <h2 style="color: #8B0000;">📈 Buy Alert: {stock_name}</h2>
             <table style="border-collapse: collapse; width: 100%; max-width: 400px;">
                 <tr style="background-color: #f2f2f2;">
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong></td>
-                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong> Non
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f} Non
                 </tr>
                 <tr>
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Your Target Price:</strong></td>
-                    <td style="padding: 10px; border: 1px solid #ddd;">₹{target_price:.2f}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Your Target Price:</strong> Non
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{target_price:.2f} Non
                 </tr>
                 <tr style="background-color: #f2f2f2;">
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong></td>
-                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong> Non
+                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} Non
                 </tr>
             </table>
             <p style="margin-top: 20px; color: #666;">
@@ -714,7 +714,7 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# DCF FAIR VALUE (kept for reference, but not used in holdings table)
+# DCF FAIR VALUE (kept for reference, not used in holdings table)
 # ------------------------------
 def calculate_fair_value(fund):
     try:
@@ -1312,7 +1312,7 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Fair Value Analysis (DCF) - placeholder (optional) -----
+    # ----- Tab 2: Fair Value Analysis (DCF) - placeholder -----
     with screener_tab2:
         st.markdown("## 💰 Fair Value Analysis (DCF)")
         st.caption("Intrinsic value based on Discounted Cash Flow model.")
@@ -1367,77 +1367,73 @@ def main_app():
         else:
             no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
-    # ----- Tab 6: Custom Fair Value (EPS × Growth) -----
-   # ----- Tab 6: Custom Fair Value (EPS × Growth) -----
-with custom_fv_tab:
-    st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
-    st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
+    # ----- Tab 6: Custom Fair Value (EPS × Growth) in Table Format -----
+    with custom_fv_tab:
+        st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
+        st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
 
-    # List of stocks to analyze
-    stock_list = [
-        {"name": "HAL", "category": "🟢 Core High-Conviction", "symbol": "HAL.NS"},
-        {"name": "MAZDOCK", "category": "🟢 Core High-Conviction", "symbol": "MAZDOCK.NS"},
-        {"name": "BSE", "category": "🟢 Core High-Conviction", "symbol": "BSE.NS"},
-        {"name": "VBL", "category": "🟢 Core High-Conviction", "symbol": "VBL.NS"},
-        {"name": "ADANIPORTS", "category": "🟢 Core High-Conviction", "symbol": "ADANIPORTS.NS"},
-        {"name": "WAAREEENER", "category": "🚀 High Growth / High Risk", "symbol": "WAAREEENER.NS"},
-        {"name": "IREDA", "category": "🚀 High Growth / High Risk", "symbol": "IREDA.NS"},
-        {"name": "JIOFIN", "category": "🚀 High Growth / High Risk", "symbol": "JIOFIN.NS"},
-        {"name": "ANANTRAJ", "category": "🚀 High Growth / High Risk", "symbol": "ANANTRAJ.NS"},
-        {"name": "BAJAJHFL", "category": "⚠️ Defensive / Low Growth", "symbol": "BAJAJHFL.NS"}
-    ]
+        # List of stocks to analyze
+        stock_list = [
+            {"name": "HAL", "category": "🟢 Core High-Conviction", "symbol": "HAL.NS"},
+            {"name": "MAZDOCK", "category": "🟢 Core High-Conviction", "symbol": "MAZDOCK.NS"},
+            {"name": "BSE", "category": "🟢 Core High-Conviction", "symbol": "BSE.NS"},
+            {"name": "VBL", "category": "🟢 Core High-Conviction", "symbol": "VBL.NS"},
+            {"name": "ADANIPORTS", "category": "🟢 Core High-Conviction", "symbol": "ADANIPORTS.NS"},
+            {"name": "WAAREEENER", "category": "🚀 High Growth / High Risk", "symbol": "WAAREEENER.NS"},
+            {"name": "IREDA", "category": "🚀 High Growth / High Risk", "symbol": "IREDA.NS"},
+            {"name": "JIOFIN", "category": "🚀 High Growth / High Risk", "symbol": "JIOFIN.NS"},
+            {"name": "ANANTRAJ", "category": "🚀 High Growth / High Risk", "symbol": "ANANTRAJ.NS"},
+            {"name": "BAJAJHFL", "category": "⚠️ Defensive / Low Growth", "symbol": "BAJAJHFL.NS"}
+        ]
 
-    # Fetch data and build a single DataFrame
-    rows = []
-    for stock in stock_list:
-        fund = get_fundamental_data(stock["symbol"])
-        if fund is None:
-            continue
+        rows = []
+        for stock in stock_list:
+            fund = get_fundamental_data(stock["symbol"])
+            if fund is None:
+                continue
 
-        # EPS
-        eps = fund.get('info', {}).get('trailingEps', np.nan)
-        if pd.isna(eps):
-            net_profit = fund.get('net_profit', np.nan) * 1e7
-            shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
-            if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
-                eps = net_profit / shares
+            # EPS
+            eps = fund.get('info', {}).get('trailingEps', np.nan)
+            if pd.isna(eps):
+                net_profit = fund.get('net_profit', np.nan) * 1e7
+                shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
+                if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
+                    eps = net_profit / shares
 
-        # Growth (prefer 5‑year, then 3‑year, else 10%)
-        growth = fund.get('profit_growth_5y', np.nan)
-        if pd.isna(growth) or growth <= 0:
-            growth = fund.get('profit_growth_3y', np.nan)
-        if pd.isna(growth) or growth <= 0:
-            growth = 10
+            # Growth (prefer 5‑year, then 3‑year, else 10%)
+            growth = fund.get('profit_growth_5y', np.nan)
+            if pd.isna(growth) or growth <= 0:
+                growth = fund.get('profit_growth_3y', np.nan)
+            if pd.isna(growth) or growth <= 0:
+                growth = 10
 
-        if pd.isna(eps) or eps <= 0:
-            continue
+            if pd.isna(eps) or eps <= 0:
+                continue
 
-        fair_value = eps * growth * 1.5
-        buy_low = fair_value * 0.80
-        buy_high = fair_value * 0.85
+            fair_value = eps * growth * 1.5
+            buy_low = fair_value * 0.80
+            buy_high = fair_value * 0.85
 
-        rows.append({
-            "Category": stock["category"],
-            "Stock": stock["name"],
-            "EPS (₹)": round(eps, 2),
-            "Growth (%)": round(growth, 1),
-            "Fair Value (₹)": round(fair_value, 2),
-            "Buy Below (₹)": f"₹{round(buy_low, 2)} – ₹{round(buy_high, 2)}"
-        })
+            rows.append({
+                "Category": stock["category"],
+                "Stock": stock["name"],
+                "EPS (₹)": round(eps, 2),
+                "Growth (%)": round(growth, 1),
+                "Fair Value (₹)": round(fair_value, 2),
+                "Buy Below (₹)": f"₹{round(buy_low, 2)} – ₹{round(buy_high, 2)}"
+            })
 
-    if rows:
-        df = pd.DataFrame(rows)
-
-        # Group by category and display each group as a table
-        for category, group in df.groupby("Category"):
-            st.markdown(f"### {category}")
-            st.dataframe(
-                group.drop(columns=["Category"]),
-                use_container_width=True,
-                hide_index=True
-            )
-    else:
-        st.info("No data available. Check your internet connection or stock symbols.")
+        if rows:
+            df = pd.DataFrame(rows)
+            for category, group in df.groupby("Category"):
+                st.markdown(f"### {category}")
+                st.dataframe(
+                    group.drop(columns=["Category"]),
+                    use_container_width=True,
+                    hide_index=True
+                )
+        else:
+            st.info("No data available. Check your internet connection or stock symbols.")
 
     st.markdown("---")
 
