@@ -902,6 +902,10 @@ def fair_value_signal(df, name):
         close = df['Close'].astype(float)
         current_price = close.iloc[-1]
         
+        # Skip if current price is unrealistic
+        if current_price <= 0 or current_price > 100000:
+            return None
+        
         # Calculate fair value
         fair_value = calculate_fair_value(fund)
         if fair_value is None:
@@ -912,6 +916,12 @@ def fair_value_signal(df, name):
         
         # Only include if trading at least 15% below fair value
         if discount >= 15:
+            # Set default target price to 80% of fair value (20% margin of safety)
+            # But ensure it's positive and not extremely low
+            target_price = fair_value * 0.8
+            if target_price <= 0 or target_price > current_price * 3:
+                target_price = current_price * 0.9  # fallback to 10% below current
+            
             return {
                 'Stock': name,
                 'Current Price': round(current_price, 2),
@@ -919,6 +929,7 @@ def fair_value_signal(df, name):
                 'Discount %': round(discount, 1),
                 'Upside': round(discount, 1),
                 'Signal': 'BUY ON DIP',
+                'Target Price': round(target_price, 2),
                 'FCF (Cr)': round(fund.get('avg_fcf', 0), 2),
                 'Growth 5Y %': round(fund.get('profit_growth_5y', 0), 1),
                 'ROCE %': round(fund.get('roce', 0), 1)
@@ -926,7 +937,6 @@ def fair_value_signal(df, name):
         return None
     except Exception:
         return None
-
 def swing_breakout_signal(df, name):
     if df.empty or len(df) < 50:
         return None
