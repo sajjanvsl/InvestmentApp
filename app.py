@@ -1409,6 +1409,7 @@ def main_app():
     # ----- Tab 2: Fair Value Screener with Editable Buy Price -----
     # ----- Tab 2: My Buy Price Tracker (Simple Version) -----
 # ----- Tab 2: Fair Value Analysis (Complete Picture) -----
+# ----- Tab 2: Fair Value Analysis (Complete Picture) -----
 with screener_tab2:
     st.markdown("## 💰 Fair Value Analysis")
     st.caption("Comprehensive valuation based on DCF model, growth rates, profitability, and financial health.")
