@@ -11,6 +11,10 @@ import json
 import os
 import time
 import hashlib
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import requests
 import traceback
 
 # Attempt to import sklearn – fallback if not available
@@ -259,8 +263,150 @@ st.markdown("""
         font-size: 0.9rem;
         margin: 1rem 0;
     }
+    /* Alert settings section */
+    .alert-settings {
+        background: #e8f4fd;
+        padding: 1.5rem;
+        border-radius: 16px;
+        margin: 1rem 0;
+        border-left: 4px solid #007bff;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# ------------------------------
+# ALERT SYSTEM
+# ------------------------------
+class AlertSystem:
+    def __init__(self):
+        self.alert_cooldown = {}  # stock -> last alert time
+        self.cooldown_minutes = 15
+        
+    def should_send_alert(self, symbol):
+        """Check if enough time has passed since last alert."""
+        current_time = time.time()
+        if symbol in self.alert_cooldown:
+            last_alert = self.alert_cooldown[symbol]
+            minutes_passed = (current_time - last_alert) / 60
+            if minutes_passed < self.cooldown_minutes:
+                return False
+        self.alert_cooldown[symbol] = current_time
+        return True
+    
+    def send_email_alert(self, stock_name, current_price, target_price):
+        """Send email alert via Gmail SMTP."""
+        if not st.session_state.get('email_enabled', False):
+            return False
+            
+        sender_email = st.session_state.get('email_sender', '')
+        sender_password = st.session_state.get('email_password', '')
+        recipient_email = st.session_state.get('email_recipient', '')
+        
+        if not all([sender_email, sender_password, recipient_email]):
+            return False
+            
+        subject = f"🚨 BUY ALERT: {stock_name}"
+        
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2 style="color: #8B0000;">📈 Buy Alert: {stock_name}</h2>
+            <table style="border-collapse: collapse; width: 100%; max-width: 400px;">
+                <tr style="background-color: #f2f2f2;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Your Target Price:</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{target_price:.2f}</td>
+                </tr>
+                <tr style="background-color: #f2f2f2;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td>
+                </tr>
+            </table>
+            <p style="margin-top: 20px; color: #666;">
+                <small>This is an automated alert from Quant Fund Manager.</small>
+            </p>
+        </body>
+        </html>
+        """
+        
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = sender_email
+            msg['To'] = recipient_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(html_body, 'html'))
+            
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+            server.quit()
+            return True
+        except Exception as e:
+            st.error(f"Email failed: {str(e)}")
+            return False
+    
+    def send_telegram_alert(self, stock_name, current_price, target_price):
+        """Send Telegram alert via bot."""
+        if not st.session_state.get('telegram_enabled', False):
+            return False
+            
+        bot_token = st.session_state.get('telegram_bot_token', '')
+        chat_id = st.session_state.get('telegram_chat_id', '')
+        
+        if not all([bot_token, chat_id]):
+            return False
+            
+        message = f"""🚨 *BUY ALERT: {stock_name}*
+        
+📊 *Current Price:* ₹{current_price:.2f}
+🎯 *Your Target:* ₹{target_price:.2f}
+⏰ *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+_This is an automated alert from Quant Fund Manager._"""
+        
+        try:
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {
+                'chat_id': chat_id,
+                'text': message,
+                'parse_mode': 'Markdown'
+            }
+            response = requests.post(url, json=payload)
+            return response.status_code == 200
+        except Exception as e:
+            st.error(f"Telegram failed: {str(e)}")
+            return False
+    
+    def check_and_send_alerts(self, stock_name, current_price, target_prices):
+        """Check if any alerts should be sent."""
+        alerts_sent = []
+        
+        # Check if current price <= any target price
+        for target_price in target_prices:
+            if current_price <= target_price and self.should_send_alert(f"{stock_name}_{target_price}"):
+                # Send email
+                if st.session_state.get('email_enabled', False):
+                    if self.send_email_alert(stock_name, current_price, target_price):
+                        alerts_sent.append(f"Email at ₹{target_price:.2f}")
+                
+                # Send Telegram
+                if st.session_state.get('telegram_enabled', False):
+                    if self.send_telegram_alert(stock_name, current_price, target_price):
+                        alerts_sent.append(f"Telegram at ₹{target_price:.2f}")
+        
+        return alerts_sent
+
+# Initialize alert system in session state
+if 'alert_system' not in st.session_state:
+    st.session_state.alert_system = AlertSystem()
+if 'target_prices' not in st.session_state:
+    st.session_state.target_prices = {}  # stock -> list of target prices
+if 'price_alerts' not in st.session_state:
+    st.session_state.price_alerts = {}   # stock -> list of triggered alerts
 
 # ------------------------------
 # AUTHENTICATION FUNCTIONS
@@ -307,7 +453,7 @@ if 'username' not in st.session_state:
     st.session_state.username = None
 
 # ------------------------------
-# MASTER STOCK LIST (all NSE stocks, including MCX)
+# MASTER STOCK LIST (all NSE stocks)
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -343,7 +489,7 @@ ALL_STOCKS = {
     "NATPLASTI": "NATPLASTI.NS",
     "SETL": "SETL.NS",
     "TDPOWERSYS": "TDPOWERSYS.NS",
-    "MCX": "MCX.NS"          # Added MCX
+    "MCX": "MCX.NS"
 }
 
 # ------------------------------
@@ -412,6 +558,7 @@ def get_intraday_data(ticker):
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
+TARGET_PRICES_FILE = "target_prices.json"
 
 def load_holdings():
     if os.path.exists(HOLDINGS_FILE):
@@ -452,6 +599,21 @@ def save_sold(df):
     else:
         if os.path.exists(SOLD_FILE):
             os.remove(SOLD_FILE)
+
+def load_target_prices():
+    """Load target prices from JSON file."""
+    if os.path.exists(TARGET_PRICES_FILE):
+        try:
+            with open(TARGET_PRICES_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_target_prices(target_dict):
+    """Save target prices to JSON file."""
+    with open(TARGET_PRICES_FILE, 'w') as f:
+        json.dump(target_dict, f, indent=2)
 
 # ------------------------------
 # FUNDAMENTAL FETCHING
@@ -668,7 +830,6 @@ def train_simple_model(df):
 # SCREENER FUNCTIONS
 # ------------------------------
 
-# === NEW: Fair Value Screener (DCF-based) ===
 def calculate_fair_value(fund):
     """Calculate intrinsic value using a simplified DCF model."""
     try:
@@ -1119,6 +1280,10 @@ def main_app():
         st.session_state.criteria_data = {}
     if 'last_refresh' not in st.session_state:
         st.session_state.last_refresh = datetime.now()
+    
+    # Load target prices
+    if 'target_prices' not in st.session_state:
+        st.session_state.target_prices = load_target_prices()
 
     # Header
     col1, col2 = st.columns([6, 1])
@@ -1131,6 +1296,31 @@ def main_app():
             st.rerun()
 
     st.markdown("#### Combined screener: Original 9‑factor + Magic Formula (19 criteria total)")
+
+    # Alert Settings Section
+    with st.expander("📧 Alert Settings (Email / Telegram)"):
+        st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📧 Email Settings")
+            st.checkbox("Enable Email Alerts", key="email_enabled", value=False)
+            st.text_input("Sender Email (Gmail)", key="email_sender", placeholder="your@gmail.com")
+            st.text_input("App Password", key="email_password", type="password", 
+                         help="Use Gmail App Password (not your regular password)")
+            st.text_input("Recipient Email", key="email_recipient", value="sajjanvsl@gmail.com")
+        
+        with col2:
+            st.subheader("📱 Telegram Settings")
+            st.checkbox("Enable Telegram Alerts", key="telegram_enabled", value=False)
+            st.text_input("Bot Token", key="telegram_bot_token", 
+                         help="Get from @BotFather on Telegram")
+            st.text_input("Chat ID", key="telegram_chat_id", value="@sajjanvsl",
+                         help="Your Telegram username or chat ID")
+        
+        st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather and get your chat ID from @userinfobot.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # Manual refresh button
     if st.button("🔄 Refresh Data"):
@@ -1191,10 +1381,10 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Fair Value Screener (new) -----
+    # ----- Tab 2: Fair Value Screener with Editable Buy Price -----
     with screener_tab2:
         st.markdown("## 💰 Fair Value Screener")
-        st.caption("Stocks trading at least 15% below estimated fair value (simplified DCF model).")
+        st.caption("Stocks trading at least 15% below estimated fair value. Set your target buy price and get alerts when price hits it.")
 
         with st.spinner("Scanning for undervalued stocks..."):
             fair_value_data = []
@@ -1204,23 +1394,92 @@ def main_app():
                 df = get_price_data(ticker)
                 sig = fair_value_signal(df, name)
                 if sig:
+                    # Add target price column (default to fair value * 0.8 for 20% margin of safety)
+                    sig['Target Price'] = sig['Fair Value'] * 0.8
                     fair_value_data.append(sig)
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
+            
         if fair_value_data:
+            # Create DataFrame
             fair_value_df = pd.DataFrame(fair_value_data)
-            # Sort by discount (highest first)
             fair_value_df = fair_value_df.sort_values('Discount %', ascending=False)
+            
+            # Create editable table with Target Price
             st.markdown('<span class="top-pick-badge">⭐ BEST VALUE</span>', unsafe_allow_html=True)
-            st.dataframe(fair_value_df.style.format({
-                'Current Price': '₹{:.2f}',
-                'Fair Value': '₹{:.2f}',
-                'Discount %': '{:.1f}%',
-                'Upside': '{:.1f}%',
-                'FCF (Cr)': '₹{:.2f} Cr',
-                'Growth 5Y %': '{:.1f}%',
-                'ROCE %': '{:.1f}%'
-            }, na_rep='-'), width='stretch')
+            
+            # Prepare columns for editing
+            display_cols = ['Stock', 'Current Price', 'Fair Value', 'Discount %', 'Target Price', 'Signal', 'FCF (Cr)', 'Growth 5Y %', 'ROCE %']
+            edit_df = fair_value_df[display_cols].copy()
+            
+            # Column configuration
+            column_config = {
+                'Stock': st.column_config.TextColumn('Stock', disabled=True),
+                'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
+                'Fair Value': st.column_config.NumberColumn('Fair Value', disabled=True, format="₹%.2f"),
+                'Discount %': st.column_config.NumberColumn('Discount %', disabled=True, format="%.1f%%"),
+                'Target Price': st.column_config.NumberColumn('Target Price', min_value=0.0, format="₹%.2f"),
+                'Signal': st.column_config.TextColumn('Signal', disabled=True),
+                'FCF (Cr)': st.column_config.NumberColumn('FCF (Cr)', disabled=True, format="₹%.2f"),
+                'Growth 5Y %': st.column_config.NumberColumn('Growth 5Y %', disabled=True, format="%.1f%%"),
+                'ROCE %': st.column_config.NumberColumn('ROCE %', disabled=True, format="%.1f%%')
+            }
+            
+            edited_df = st.data_editor(
+                edit_df,
+                column_config=column_config,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed"
+            )
+            
+            # Check for changes in Target Price
+            target_prices_updated = False
+            for idx, row in edited_df.iterrows():
+                stock = row['Stock']
+                new_target = row['Target Price']
+                old_target = st.session_state.target_prices.get(stock, [])
+                
+                # Convert to list if not already
+                if not isinstance(old_target, list):
+                    old_target = [old_target] if old_target else []
+                
+                # Update if changed
+                if new_target not in old_target:
+                    if new_target > 0:
+                        st.session_state.target_prices[stock] = [new_target]
+                        target_prices_updated = True
+            
+            if target_prices_updated:
+                save_target_prices(st.session_state.target_prices)
+                st.success("Target prices updated!")
+            
+            # Check for alerts
+            alerts_triggered = []
+            for idx, row in edited_df.iterrows():
+                stock = row['Stock']
+                current_price = row['Current Price']
+                
+                if stock in st.session_state.target_prices:
+                    target_list = st.session_state.target_prices[stock]
+                    if isinstance(target_list, list):
+                        alerts_sent = st.session_state.alert_system.check_and_send_alerts(
+                            stock, current_price, target_list
+                        )
+                        if alerts_sent:
+                            alerts_triggered.append(f"{stock}: {', '.join(alerts_sent)}")
+            
+            if alerts_triggered:
+                st.success("✅ Alerts sent: " + "; ".join(alerts_triggered))
+            
+            # Show current target prices
+            if st.session_state.target_prices:
+                with st.expander("📋 Current Target Prices"):
+                    target_df = pd.DataFrame([
+                        {'Stock': k, 'Target Price(s)': v} 
+                        for k, v in st.session_state.target_prices.items()
+                    ])
+                    st.dataframe(target_df, width='stretch')
         else:
             no_stocks_message(
                 "Fair Value Screener",
