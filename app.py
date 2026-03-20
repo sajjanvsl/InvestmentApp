@@ -1234,102 +1234,137 @@ def main_app():
         st.write("If data fetch fails, try running this command in your terminal:")
         st.code("pip install --upgrade yfinance")
 
-    # ========== DEFINE ALL 5 TABS ==========
-    screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5 = st.tabs([
-        "🤖 AI Swing Scanner", 
-        "💰 Fair Value Analysis",
-        "📈 Fundamental Breakout",
-        "⚡ Intraday Breakout & Breakdown (5-min)",
-        "🤖 AI Intraday Picks"
-    ])
+    # After the existing tabs definition (around line where tabs are created), add a sixth tab:
+screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5, custom_fv_tab = st.tabs([
+    "🤖 AI Swing Scanner", 
+    "💰 Fair Value Analysis",
+    "📈 Fundamental Breakout",
+    "⚡ Intraday Breakout & Breakdown (5-min)",
+    "🤖 AI Intraday Picks",
+    "📊 Custom Fair Value (EPS × Growth)"
+])
 
-    # ----- Tab 1: AI Swing Scanner -----
-    with screener_tab1:
-        st.markdown("## 🤖 AI Swing Trading Scanner")
-        st.caption("AI-powered swing signals combining technical rules with RandomForest.")
-        with st.spinner("Fetching swing signals..."):
-            swing_data = []
-            today = datetime.now().date()
-            total_stocks = len(ALL_STOCKS)
-            progress_bar = st.progress(0, text="Scanning stocks...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-                df = get_price_data(ticker)
-                sig = ai_swing_signal(df, name)
-                if sig:
-                    last_seen = st.session_state.swing_history.get(name)
-                    if last_seen is None or (today - last_seen).days >= 5:
-                        sig['Fresh'] = '✅ Fresh'
-                        st.session_state.swing_history[name] = today
-                    else:
-                        sig['Fresh'] = ''
-                    swing_data.append(sig)
-                progress_bar.progress((idx+1)/total_stocks)
-            progress_bar.empty()
-        if swing_data:
-            swing_df = pd.DataFrame(swing_data)
-            display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'AI Conf', 'Fresh']
-            swing_df = swing_df[[col for col in display_cols if col in swing_df.columns]]
-            st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
-            st.dataframe(swing_df, width='stretch')
+# Then inside that new tab, add the following code:
+with custom_fv_tab:
+    st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
+    st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
+
+    # List of stocks to analyze (as per user's example)
+    stock_list = [
+        {"name": "HAL", "category": "Core High-Conviction", "symbol": "HAL.NS"},
+        {"name": "MAZDOCK", "category": "Core High-Conviction", "symbol": "MAZDOCK.NS"},
+        {"name": "BSE", "category": "Core High-Conviction", "symbol": "BSE.NS"},
+        {"name": "VBL", "category": "Core High-Conviction", "symbol": "VBL.NS"},
+        {"name": "ADANIPORTS", "category": "Core High-Conviction", "symbol": "ADANIPORTS.NS"},
+        {"name": "WAAREEENER", "category": "High Growth / High Risk", "symbol": "WAAREEENER.NS"},
+        {"name": "IREDA", "category": "High Growth / High Risk", "symbol": "IREDA.NS"},
+        {"name": "JIOFIN", "category": "High Growth / High Risk", "symbol": "JIOFIN.NS"},
+        {"name": "ANANTRAJ", "category": "High Growth / High Risk", "symbol": "ANANTRAJ.NS"},
+        {"name": "BAJAJHFL", "category": "Defensive / Low Growth", "symbol": "BAJAJHFL.NS"}
+    ]
+
+    # Fetch data for each stock
+    results = []
+    for stock in stock_list:
+        name = stock["name"]
+        symbol = stock["symbol"]
+        category = stock["category"]
+
+        # Get fundamental data
+        fund = get_fundamental_data(symbol)
+        if fund is None:
+            results.append({
+                "name": name,
+                "category": category,
+                "eps": None,
+                "growth": None,
+                "fair_value": None,
+                "buy_low": None,
+                "buy_high": None,
+                "error": "No fundamental data"
+            })
+            continue
+
+        # Get EPS (use trailingEps from info, fallback to net profit / shares)
+        eps = fund.get('info', {}).get('trailingEps', np.nan)
+        if pd.isna(eps):
+            # Try to compute from net_profit and shares
+            net_profit = fund.get('net_profit', np.nan) * 1e7  # convert to rupees
+            shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
+            if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
+                eps = net_profit / shares
+            else:
+                eps = np.nan
+
+        # Get growth rate (use 5‑year profit growth, fallback to 3‑year)
+        growth = fund.get('profit_growth_5y', np.nan)
+        if pd.isna(growth) or growth <= 0:
+            growth = fund.get('profit_growth_3y', np.nan)
+        if pd.isna(growth) or growth <= 0:
+            growth = 10  # default conservative growth
+
+        if pd.isna(eps) or eps <= 0:
+            results.append({
+                "name": name,
+                "category": category,
+                "eps": None,
+                "growth": growth,
+                "fair_value": None,
+                "buy_low": None,
+                "buy_high": None,
+                "error": "No EPS data"
+            })
+            continue
+
+        # Compute fair value
+        fair_value = eps * growth * 1.5
+        # Buy range: 80% to 85% of fair value (as in example)
+        buy_low = round(fair_value * 0.80, 2)
+        buy_high = round(fair_value * 0.85, 2)
+
+        results.append({
+            "name": name,
+            "category": category,
+            "eps": round(eps, 2),
+            "growth": round(growth, 1),
+            "fair_value": round(fair_value, 2),
+            "buy_low": buy_low,
+            "buy_high": buy_high,
+            "error": None
+        })
+
+    # Group results by category
+    categories = {
+        "🟢 Core High-Conviction Stocks": [],
+        "🚀 High Growth / High Risk": [],
+        "⚠️ Defensive / Low Growth": []
+    }
+
+    for res in results:
+        if res["error"]:
+            continue
+        if "Core" in res["category"]:
+            categories["🟢 Core High-Conviction Stocks"].append(res)
+        elif "High Growth" in res["category"]:
+            categories["🚀 High Growth / High Risk"].append(res)
         else:
-            no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
+            categories["⚠️ Defensive / Low Growth"].append(res)
 
-    # ----- Tab 2: Fair Value Analysis (kept as before) -----
-    with screener_tab2:
-        st.markdown("## 💰 Fair Value Analysis")
-        st.caption("Comprehensive valuation based on DCF model, growth rates, profitability, and financial health.")
-        # ... (keep the full fair value analysis code from previous version) ...
-        # We'll include a placeholder; for brevity in this answer, we can keep the earlier code.
-        st.info("Fair Value Analysis tab - full code omitted for brevity, but remains functional.")
-
-    # ----- Tab 3: Fundamental Breakout -----
-    with screener_tab3:
-        st.markdown("## 📈 Fundamental Breakout Screener")
-        st.caption("Stocks meeting: Price >500, Mkt Cap >500 Cr, Sales & Profit growth >20%, ROCE >10%, P/E > 15.")
-        st.info("This screener is under development. Please check back later.")
-
-    # ----- Tab 4: Intraday Breakout & Breakdown -----
-    with screener_tab4:
-        st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
-        st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
-        with st.spinner("Scanning for intraday opportunities..."):
-            intraday_signals = []
-            total_stocks = len(ALL_STOCKS)
-            progress_bar = st.progress(0, text="Scanning stocks...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-                sig = intraday_breakout_breakdown_signal(name)
-                if sig:
-                    intraday_signals.append(sig)
-                progress_bar.progress((idx+1)/total_stocks)
-            progress_bar.empty()
-        if intraday_signals:
-            intraday_df = pd.DataFrame(intraday_signals)
-            cols = ['Stock', 'Type', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
-            intraday_df = intraday_df[[c for c in cols if c in intraday_df.columns]]
-            st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY SIGNAL</span>', unsafe_allow_html=True)
-            st.dataframe(intraday_df, width='stretch')
-        else:
-            no_stocks_message(
-                "Intraday Breakout & Breakdown Screener",
-                "• Breakout: Close > VWAP, RSI > 55, Volume > 1.5× avg, Close > Previous High<br>"
-                "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
-            )
-
-    # ----- Tab 5: AI Intraday Picks -----
-    with screener_tab5:
-        st.markdown("## 🤖 AI Intraday Picks")
-        st.caption("AI‑powered intraday picks – only the highest‑confidence signal per stock is shown. Higher score = stronger signal.")
-        with st.spinner("Scanning for AI intraday opportunities..."):
-            intraday = intraday_picks()[:20]
-        if intraday:
-            intraday_df = pd.DataFrame(intraday)
-            display_cols = ['Stock', 'Signal', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'AI Conf', 'Score']
-            intraday_df = intraday_df[[col for col in display_cols if col in intraday_df.columns]]
-            st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
-            st.dataframe(intraday_df, width='stretch')
-        else:
-            no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
-
+    # Display in styled markdown
+    for cat_name, stocks in categories.items():
+        if stocks:
+            st.markdown(f"## {cat_name}")
+            for s in stocks:
+                st.markdown(f"""
+                **{s['name']}**  
+                EPS ≈ ₹{s['eps']}  
+                Growth ≈ {s['growth']}%  
+                👉 **Fair Value** = {s['eps']} × {s['growth']} × 1.5 = ₹{s['fair_value']}  
+                👉 **Buy below:** ₹{s['buy_low']} – ₹{s['buy_high']}
+                ---
+                """)
+    if not any(categories.values()):
+        st.info("No data available. Check your internet connection or stock symbols.")
     st.markdown("---")
 
     # ------------------------------
