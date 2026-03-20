@@ -418,8 +418,11 @@ def hash_password(password):
 
 def load_users():
     if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
     else:
         default_users = {
             "admin": hash_password("admin123")
@@ -853,7 +856,9 @@ def calculate_fair_value(fund):
             projected_fcf.append(fcf * ((1 + growth_rate/100) ** i))
         
         # Calculate present value of projected FCF
-        pv_fcf = sum([fcf / ((1 + discount_rate/100) ** (i+1)) for i, fcf in enumerate(projected_fcf)])
+        pv_fcf = 0
+        for i, fcf_val in enumerate(projected_fcf):
+            pv_fcf += fcf_val / ((1 + discount_rate/100) ** (i+1))
         
         # Calculate terminal value
         terminal_fcf = projected_fcf[-1] * (1 + terminal_growth/100)
@@ -1412,7 +1417,7 @@ def main_app():
             display_cols = ['Stock', 'Current Price', 'Fair Value', 'Discount %', 'Target Price', 'Signal', 'FCF (Cr)', 'Growth 5Y %', 'ROCE %']
             edit_df = fair_value_df[display_cols].copy()
             
-            # Column configuration
+            # Column configuration - FIXED FORMAT STRINGS
             column_config = {
                 'Stock': st.column_config.TextColumn('Stock', disabled=True),
                 'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
@@ -1422,7 +1427,7 @@ def main_app():
                 'Signal': st.column_config.TextColumn('Signal', disabled=True),
                 'FCF (Cr)': st.column_config.NumberColumn('FCF (Cr)', disabled=True, format="₹%.2f"),
                 'Growth 5Y %': st.column_config.NumberColumn('Growth 5Y %', disabled=True, format="%.1f%%"),
-                'ROCE %': st.column_config.NumberColumn('ROCE %', disabled=True, format="%.1f%%')
+                'ROCE %': st.column_config.NumberColumn('ROCE %', disabled=True, format="%.1f%%")
             }
             
             edited_df = st.data_editor(
