@@ -841,9 +841,14 @@ def calculate_fair_value(fund):
         
         # Get required data
         fcf = fund.get('avg_fcf')  # Average FCF in Cr
+        if pd.isna(fcf) or fcf <= 0:
+            return None  # Skip stocks with negative or zero FCF
+        
         growth_rate = fund.get('profit_growth_5y')  # 5-year profit growth
         if pd.isna(growth_rate) or growth_rate <= 0:
-            growth_rate = 10  # default 10% if no data
+            growth_rate = 8  # default 8% if no data (more conservative)
+        elif growth_rate > 30:
+            growth_rate = 30  # Cap growth rate at 30% to avoid unrealistic projections
         
         # Parameters for DCF
         projection_years = 5
@@ -872,12 +877,17 @@ def calculate_fair_value(fund):
         shares_outstanding = fund.get('info', {}).get('sharesOutstanding', 0)
         if shares_outstanding > 0:
             intrinsic_value_per_share = (intrinsic_value_cr * 1e7) / shares_outstanding
+            
+            # Sanity check: fair value shouldn't be negative or extremely high
+            if intrinsic_value_per_share <= 0 or intrinsic_value_per_share > 100000:
+                return None
+            
             return intrinsic_value_per_share
         else:
             return None
     except Exception:
         return None
-
+        
 def fair_value_signal(df, name):
     """Identify stocks trading at least 15% below fair value."""
     if df.empty:
