@@ -1407,109 +1407,107 @@ def main_app():
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
     # ----- Tab 2: Fair Value Screener with Editable Buy Price -----
-    with screener_tab2:
-        st.markdown("## 💰 Fair Value Screener")
-        st.caption("Stocks trading at least 15% below estimated fair value. Set your target buy price and get alerts when price hits it.")
+    # ----- Tab 2: My Buy Price Tracker (Simple Version) -----
+with screener_tab2:
+    st.markdown("## 💰 My Buy Price Tracker")
+    st.caption("Set your own target buy price for any stock. Get alerts when price drops to your target.")
 
-        with st.spinner("Scanning for undervalued stocks..."):
-            fair_value_data = []
-            total_stocks = len(ALL_STOCKS)
-            progress_bar = st.progress(0, text="Scanning stocks...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-                df = get_price_data(ticker)
-                sig = fair_value_signal(df, name)
-                if sig:
-                    # Add target price column (default to fair value * 0.8 for 20% margin of safety)
-                    sig['Target Price'] = sig['Fair Value'] * 0.8
-                    fair_value_data.append(sig)
-                progress_bar.progress((idx+1)/total_stocks)
-            progress_bar.empty()
-            
-        if fair_value_data:
-            # Create DataFrame
-            fair_value_df = pd.DataFrame(fair_value_data)
-            fair_value_df = fair_value_df.sort_values('Discount %', ascending=False)
-            
-            # Create editable table with Target Price
-            st.markdown('<span class="top-pick-badge">⭐ BEST VALUE</span>', unsafe_allow_html=True)
-            
-            # Prepare columns for editing
-            display_cols = ['Stock', 'Current Price', 'Fair Value', 'Discount %', 'Target Price', 'Signal', 'FCF (Cr)', 'Growth 5Y %', 'ROCE %']
-            edit_df = fair_value_df[display_cols].copy()
-            
-            # Column configuration - FIXED FORMAT STRINGS
-            column_config = {
-                'Stock': st.column_config.TextColumn('Stock', disabled=True),
-                'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
-                'Fair Value': st.column_config.NumberColumn('Fair Value', disabled=True, format="₹%.2f"),
-                'Discount %': st.column_config.NumberColumn('Discount %', disabled=True, format="%.1f%%"),
-                'Target Price': st.column_config.NumberColumn('Target Price', min_value=0.0, format="₹%.2f"),
-                'Signal': st.column_config.TextColumn('Signal', disabled=True),
-                'FCF (Cr)': st.column_config.NumberColumn('FCF (Cr)', disabled=True, format="₹%.2f"),
-                'Growth 5Y %': st.column_config.NumberColumn('Growth 5Y %', disabled=True, format="%.1f%%"),
-                'ROCE %': st.column_config.NumberColumn('ROCE %', disabled=True, format="%.1f%%")
-            }
-            
-            edited_df = st.data_editor(
-                edit_df,
-                column_config=column_config,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="fixed"
-            )
-            
-            # Check for changes in Target Price
-            target_prices_updated = False
-            for idx, row in edited_df.iterrows():
-                stock = row['Stock']
-                new_target = row['Target Price']
-                old_target = st.session_state.target_prices.get(stock, [])
+    # Load existing target prices
+    if 'my_target_prices' not in st.session_state:
+        st.session_state.my_target_prices = load_target_prices()
+
+    # Show all stocks from master list (not just undervalued ones)
+    all_stocks_list = list(ALL_STOCKS.keys())
+    
+    # Create a DataFrame with all stocks and their current prices
+    stock_data = []
+    with st.spinner("Loading current prices..."):
+        progress_bar = st.progress(0, text="Loading stocks...")
+        for idx, stock_name in enumerate(all_stocks_list):
+            ticker = ALL_STOCKS[stock_name]
+            df = get_price_data(ticker)
+            if not df.empty:
+                close = df['Close'].astype(float)
+                current_price = close.iloc[-1]
+                # Get default target price from session state or use 90% of current price
+                default_target = st.session_state.my_target_prices.get(stock_name, round(current_price * 0.9, 2))
                 
-                # Convert to list if not already
-                if not isinstance(old_target, list):
-                    old_target = [old_target] if old_target else []
-                
-                # Update if changed
-                if new_target not in old_target:
-                    if new_target > 0:
-                        st.session_state.target_prices[stock] = [new_target]
-                        target_prices_updated = True
+                stock_data.append({
+                    'Stock': stock_name,
+                    'Current Price': round(current_price, 2),
+                    'My Buy Price': default_target
+                })
+            progress_bar.progress((idx+1)/len(all_stocks_list))
+        progress_bar.empty()
+    
+    if stock_data:
+        # Create DataFrame
+        watch_df = pd.DataFrame(stock_data)
+        
+        # Editable table
+        st.markdown('<span class="top-pick-badge">⭐ MY WATCHLIST</span>', unsafe_allow_html=True)
+        
+        column_config = {
+            'Stock': st.column_config.TextColumn('Stock', disabled=True),
+            'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
+            'My Buy Price': st.column_config.NumberColumn('My Buy Price', min_value=0.01, max_value=100000.0, format="₹%.2f")
+        }
+        
+        edited_df = st.data_editor(
+            watch_df,
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed"
+        )
+        
+        # Save any changes to buy prices
+        prices_updated = False
+        for idx, row in edited_df.iterrows():
+            stock = row['Stock']
+            new_price = row['My Buy Price']
+            old_price = st.session_state.my_target_prices.get(stock)
             
-            if target_prices_updated:
-                save_target_prices(st.session_state.target_prices)
-                st.success("Target prices updated!")
+            if old_price != new_price:
+                st.session_state.my_target_prices[stock] = new_price
+                prices_updated = True
+        
+        if prices_updated:
+            save_target_prices(st.session_state.my_target_prices)
+            st.success("✅ Your buy prices saved!")
+        
+        # Check for alerts
+        alerts_triggered = []
+        for idx, row in edited_df.iterrows():
+            stock = row['Stock']
+            current_price = row['Current Price']
+            target_price = row['My Buy Price']
             
-            # Check for alerts
-            alerts_triggered = []
-            for idx, row in edited_df.iterrows():
-                stock = row['Stock']
-                current_price = row['Current Price']
-                
-                if stock in st.session_state.target_prices:
-                    target_list = st.session_state.target_prices[stock]
-                    if isinstance(target_list, list):
-                        alerts_sent = st.session_state.alert_system.check_and_send_alerts(
-                            stock, current_price, target_list
-                        )
-                        if alerts_sent:
-                            alerts_triggered.append(f"{stock}: {', '.join(alerts_sent)}")
+            if target_price > 0 and current_price <= target_price:
+                # Check cooldown and send alerts
+                alerts_sent = st.session_state.alert_system.check_and_send_alerts(
+                    stock, current_price, [target_price]
+                )
+                if alerts_sent:
+                    alerts_triggered.append(f"{stock} at ₹{current_price:.2f}")
+        
+        if alerts_triggered:
+            st.success("✅ Alerts sent for: " + ", ".join(alerts_triggered))
+        
+        # Show summary
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Stocks Tracked", len(edited_df))
+        with col2:
+            targets_set = sum(1 for p in edited_df['My Buy Price'] if p > 0)
+            st.metric("Targets Set", targets_set)
+        with col3:
+            alerts_active = sum(1 for _, row in edited_df.iterrows() if row['Current Price'] <= row['My Buy Price'])
+            st.metric("Alerts Triggered", alerts_active)
             
-            if alerts_triggered:
-                st.success("✅ Alerts sent: " + "; ".join(alerts_triggered))
-            
-            # Show current target prices
-            if st.session_state.target_prices:
-                with st.expander("📋 Current Target Prices"):
-                    target_df = pd.DataFrame([
-                        {'Stock': k, 'Target Price(s)': v} 
-                        for k, v in st.session_state.target_prices.items()
-                    ])
-                    st.dataframe(target_df, width='stretch')
-        else:
-            no_stocks_message(
-                "Fair Value Screener",
-                "• Simplified DCF model<br>• 5‑year FCF projections<br>• 12% discount rate<br>• 4% terminal growth<br>• Requires at least 15% discount"
-            )
+    else:
+        st.error("Could not load stock data. Please check your internet connection.")
 
     # ----- Tab 3: Fundamental Breakout -----
     with screener_tab3:
