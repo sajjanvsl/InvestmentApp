@@ -1410,6 +1410,16 @@ def main_app():
     # ----- Tab 2: My Buy Price Tracker (Simple Version) -----
 # ----- Tab 2: Fair Value Analysis (Complete Picture) -----
 # ----- Tab 2: Fair Value Analysis (Complete Picture) -----
+# First, make sure your tabs are defined like this at the beginning of main_app():
+screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5 = st.tabs([
+    "🤖 AI Swing Scanner", 
+    "💰 Fair Value Analysis",  # This is Tab 2
+    "📈 Fundamental Breakout",
+    "⚡ Intraday Breakout & Breakdown (5-min)",
+    "🤖 AI Intraday Picks"
+])
+
+# ----- Tab 2: Fair Value Analysis (Complete Picture) -----
 with screener_tab2:
     st.markdown("## 💰 Fair Value Analysis")
     st.caption("Comprehensive valuation based on DCF model, growth rates, profitability, and financial health.")
