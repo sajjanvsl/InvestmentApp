@@ -1408,107 +1408,220 @@ def main_app():
 
     # ----- Tab 2: Fair Value Screener with Editable Buy Price -----
     # ----- Tab 2: My Buy Price Tracker (Simple Version) -----
+# ----- Tab 2: Fair Value Analysis (Complete Picture) -----
 with screener_tab2:
-    st.markdown("## 💰 My Buy Price Tracker")
-    st.caption("Set your own target buy price for any stock. Get alerts when price drops to your target.")
-
-    # Load existing target prices
-    if 'my_target_prices' not in st.session_state:
-        st.session_state.my_target_prices = load_target_prices()
-
-    # Show all stocks from master list (not just undervalued ones)
-    all_stocks_list = list(ALL_STOCKS.keys())
+    st.markdown("## 💰 Fair Value Analysis")
+    st.caption("Comprehensive valuation based on DCF model, growth rates, profitability, and financial health.")
     
-    # Create a DataFrame with all stocks and their current prices
-    stock_data = []
-    with st.spinner("Loading current prices..."):
-        progress_bar = st.progress(0, text="Loading stocks...")
-        for idx, stock_name in enumerate(all_stocks_list):
-            ticker = ALL_STOCKS[stock_name]
+    st.markdown("""
+    | Status | Meaning | Action |
+    |--------|---------|--------|
+    | 🟢 **Undervalued** | Price < Fair Value (≥15% discount) | **BUY** |
+    | 🟡 **Fairly Priced** | Price ≈ Fair Value (±15%) | **HOLD** |
+    | 🔴 **Overvalued** | Price > Fair Value (≥15% premium) | **SELL/WAIT** |
+    """)
+
+    with st.spinner("Analyzing all stocks with complete fundamentals..."):
+        fair_value_data = []
+        total_stocks = len(ALL_STOCKS)
+        progress_bar = st.progress(0, text="Calculating fair values...")
+        
+        for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
             df = get_price_data(ticker)
-            if not df.empty:
-                close = df['Close'].astype(float)
-                current_price = close.iloc[-1]
-                # Get default target price from session state or use 90% of current price
-                default_target = st.session_state.my_target_prices.get(stock_name, round(current_price * 0.9, 2))
+            if df.empty:
+                progress_bar.progress((idx+1)/total_stocks)
+                continue
                 
-                stock_data.append({
-                    'Stock': stock_name,
-                    'Current Price': round(current_price, 2),
-                    'My Buy Price': default_target
+            # Get current price
+            close = df['Close'].astype(float)
+            current_price = close.iloc[-1]
+            
+            # Get fundamental data
+            fund = get_fundamental_data(ticker)
+            if fund is None:
+                progress_bar.progress((idx+1)/total_stocks)
+                continue
+            
+            # Calculate fair value using DCF
+            fair_value = calculate_fair_value(fund)
+            
+            if fair_value and fair_value > 0 and current_price > 0:
+                # Calculate valuation metrics
+                if current_price < fair_value * 0.85:  # 15% below fair value
+                    status = "🟢 UNDERVALUED"
+                    action = "BUY"
+                    reason = "Trading at significant discount to fair value"
+                elif current_price > fair_value * 1.15:  # 15% above fair value
+                    status = "🔴 OVERVALUED"
+                    action = "SELL/WAIT"
+                    reason = "Trading at premium to fair value"
+                else:
+                    status = "🟡 FAIRLY PRICED"
+                    action = "HOLD"
+                    reason = "Trading near fair value"
+                
+                # Calculate key ratios
+                price_to_fairvalue = round(current_price / fair_value, 2)
+                discount_pct = round(((fair_value - current_price) / fair_value) * 100, 1)
+                
+                # Get fundamental health indicators
+                fcf = fund.get('avg_fcf', 0)
+                growth = fund.get('profit_growth_5y', 0)
+                roce = fund.get('roce', 0)
+                de_ratio = fund.get('de_ratio', 0)
+                
+                # Determine fundamental health
+                if fcf > 0 and growth > 10 and roce > 15 and de_ratio < 0.5:
+                    health = "💪 STRONG"
+                elif fcf > 0 and growth > 5 and roce > 10:
+                    health = "👍 GOOD"
+                else:
+                    health = "⚠️ WEAK"
+                
+                fair_value_data.append({
+                    'Stock': name,
+                    'Current Price': current_price,
+                    'Fair Value': fair_value,
+                    'P/FV Ratio': price_to_fairvalue,
+                    'Discount %': discount_pct,
+                    'Status': status,
+                    'Action': action,
+                    'Reason': reason,
+                    'Health': health,
+                    'FCF (Cr)': fcf,
+                    'Growth 5Y %': growth,
+                    'ROCE %': roce,
+                    'D/E Ratio': de_ratio
                 })
-            progress_bar.progress((idx+1)/len(all_stocks_list))
+            progress_bar.progress((idx+1)/total_stocks)
         progress_bar.empty()
     
-    if stock_data:
+    if fair_value_data:
         # Create DataFrame
-        watch_df = pd.DataFrame(stock_data)
+        fv_df = pd.DataFrame(fair_value_data)
         
-        # Editable table
-        st.markdown('<span class="top-pick-badge">⭐ MY WATCHLIST</span>', unsafe_allow_html=True)
+        # Your specific stocks
+        your_stocks = ['TMPV', 'TMCV', 'HDFCBANK']
         
-        column_config = {
-            'Stock': st.column_config.TextColumn('Stock', disabled=True),
-            'Current Price': st.column_config.NumberColumn('Current Price', disabled=True, format="₹%.2f"),
-            'My Buy Price': st.column_config.NumberColumn('My Buy Price', min_value=0.01, max_value=100000.0, format="₹%.2f")
-        }
+        # Show your stocks first
+        st.markdown("## 📊 Your Portfolio Analysis")
+        your_df = fv_df[fv_df['Stock'].isin(your_stocks)]
         
-        edited_df = st.data_editor(
-            watch_df,
-            column_config=column_config,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="fixed"
-        )
+        if not your_df.empty:
+            for _, row in your_df.iterrows():
+                # Create expander for each stock with full details
+                with st.expander(f"**{row['Stock']}** - {row['Status']} - {row['Action']}"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.metric("Current Price", f"₹{row['Current Price']:.2f}")
+                        st.metric("Fair Value", f"₹{row['Fair Value']:.2f}")
+                        st.metric("Discount/Premium", f"{row['Discount %']:+.1f}%")
+                    
+                    with col2:
+                        st.metric("P/FV Ratio", f"{row['P/FV Ratio']:.2f}x")
+                        st.metric("FCF (Cr)", f"₹{row['FCF (Cr)']:.2f}")
+                        st.metric("Growth 5Y", f"{row['Growth 5Y %']:.1f}%")
+                    
+                    with col3:
+                        st.metric("ROCE", f"{row['ROCE %']:.1f}%")
+                        st.metric("D/E Ratio", f"{row['D/E Ratio']:.2f}")
+                        st.metric("Health", row['Health'])
+                    
+                    st.info(f"**Analysis:** {row['Reason']}")
+                    
+                    # Show buy/sell recommendation
+                    if row['Action'] == 'BUY':
+                        st.success(f"✅ **BUY SIGNAL**: {row['Stock']} is undervalued by {abs(row['Discount %'])}%. Consider accumulating.")
+                        
+                        # Show good entry levels
+                        entry1 = round(row['Fair Value'] * 0.9, 2)
+                        entry2 = round(row['Fair Value'] * 0.8, 2)
+                        entry3 = round(row['Fair Value'] * 0.7, 2)
+                        st.info(f"💡 **Suggested Entry Levels:** ₹{entry1} (10% discount), ₹{entry2} (20% discount), ₹{entry3} (30% discount)")
+                        
+                    elif row['Action'] == 'SELL/WAIT':
+                        st.warning(f"⚠️ **WAIT SIGNAL**: {row['Stock']} is overvalued by {row['Discount %']}%. Wait for price to correct.")
+                        
+                        # Show target to buy
+                        target = round(row['Fair Value'] * 0.85, 2)
+                        st.info(f"🎯 **Target Buy Price:** ₹{target} (15% below fair value)")
+                        
+                    else:
+                        st.info(f"ℹ️ **HOLD SIGNAL**: {row['Stock']} is fairly valued. Hold for now.")
         
-        # Save any changes to buy prices
-        prices_updated = False
-        for idx, row in edited_df.iterrows():
-            stock = row['Stock']
-            new_price = row['My Buy Price']
-            old_price = st.session_state.my_target_prices.get(stock)
-            
-            if old_price != new_price:
-                st.session_state.my_target_prices[stock] = new_price
-                prices_updated = True
-        
-        if prices_updated:
-            save_target_prices(st.session_state.my_target_prices)
-            st.success("✅ Your buy prices saved!")
-        
-        # Check for alerts
-        alerts_triggered = []
-        for idx, row in edited_df.iterrows():
-            stock = row['Stock']
-            current_price = row['Current Price']
-            target_price = row['My Buy Price']
-            
-            if target_price > 0 and current_price <= target_price:
-                # Check cooldown and send alerts
-                alerts_sent = st.session_state.alert_system.check_and_send_alerts(
-                    stock, current_price, [target_price]
-                )
-                if alerts_sent:
-                    alerts_triggered.append(f"{stock} at ₹{current_price:.2f}")
-        
-        if alerts_triggered:
-            st.success("✅ Alerts sent for: " + ", ".join(alerts_triggered))
-        
-        # Show summary
+        # Show all stocks by category
         st.markdown("---")
-        col1, col2, col3 = st.columns(3)
+        tab1, tab2, tab3 = st.tabs(["🟢 Undervalued (BUY)", "🟡 Fairly Priced (HOLD)", "🔴 Overvalued (SELL/WAIT)"])
+        
+        with tab1:
+            undervalued = fv_df[fv_df['Status'].str.contains('UNDERVALUED')].sort_values('Discount %', ascending=False)
+            if not undervalued.empty:
+                st.dataframe(
+                    undervalued[['Stock', 'Current Price', 'Fair Value', 'Discount %', 'Health', 'FCF (Cr)', 'Growth 5Y %', 'ROCE %']].style.format({
+                        'Current Price': '₹{:.2f}',
+                        'Fair Value': '₹{:.2f}',
+                        'Discount %': '{:.1f}%',
+                        'FCF (Cr)': '₹{:.2f}',
+                        'Growth 5Y %': '{:.1f}%',
+                        'ROCE %': '{:.1f}%'
+                    }),
+                    use_container_width=True
+                )
+            else:
+                st.info("No undervalued stocks found at current prices.")
+        
+        with tab2:
+            fair = fv_df[fv_df['Status'].str.contains('FAIRLY')].sort_values('Discount %', ascending=False)
+            if not fair.empty:
+                st.dataframe(
+                    fair[['Stock', 'Current Price', 'Fair Value', 'Discount %', 'Health', 'FCF (Cr)', 'Growth 5Y %', 'ROCE %']].style.format({
+                        'Current Price': '₹{:.2f}',
+                        'Fair Value': '₹{:.2f}',
+                        'Discount %': '{:.1f}%',
+                        'FCF (Cr)': '₹{:.2f}',
+                        'Growth 5Y %': '{:.1f}%',
+                        'ROCE %': '{:.1f}%'
+                    }),
+                    use_container_width=True
+                )
+            else:
+                st.info("No fairly priced stocks found.")
+        
+        with tab3:
+            overvalued = fv_df[fv_df['Status'].str.contains('OVERVALUED')].sort_values('Discount %', ascending=True)
+            if not overvalued.empty:
+                st.dataframe(
+                    overvalued[['Stock', 'Current Price', 'Fair Value', 'Discount %', 'Health', 'FCF (Cr)', 'Growth 5Y %', 'ROCE %']].style.format({
+                        'Current Price': '₹{:.2f}',
+                        'Fair Value': '₹{:.2f}',
+                        'Discount %': '{:.1f}%',
+                        'FCF (Cr)': '₹{:.2f}',
+                        'Growth 5Y %': '{:.1f}%',
+                        'ROCE %': '{:.1f}%'
+                    }),
+                    use_container_width=True
+                )
+            else:
+                st.info("No overvalued stocks found.")
+        
+        # Summary statistics
+        st.markdown("---")
+        st.subheader("📊 Market Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        
         with col1:
-            st.metric("Stocks Tracked", len(edited_df))
+            st.metric("Total Stocks Analyzed", len(fv_df))
         with col2:
-            targets_set = sum(1 for p in edited_df['My Buy Price'] if p > 0)
-            st.metric("Targets Set", targets_set)
+            st.metric("Undervalued (BUY)", len(undervalued))
         with col3:
-            alerts_active = sum(1 for _, row in edited_df.iterrows() if row['Current Price'] <= row['My Buy Price'])
-            st.metric("Alerts Triggered", alerts_active)
+            st.metric("Fairly Priced (HOLD)", len(fair))
+        with col4:
+            st.metric("Overvalued (SELL/WAIT)", len(overvalued))
             
     else:
-        st.error("Could not load stock data. Please check your internet connection.")
-
+        st.error("Could not calculate fair values. Please check your internet connection.")
+        
     # ----- Tab 3: Fundamental Breakout -----
     with screener_tab3:
         st.markdown("## 📈 Fundamental Breakout Screener")
