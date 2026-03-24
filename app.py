@@ -1560,142 +1560,233 @@ def main_app():
         else:
             st.info("No data available. Check your internet connection or stock symbols.")
 
-    # ----- Tab 7: Final Portfolio Action Table -----
-    with final_action_tab:
-        st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
-        st.caption("Based on EPS×Growth fair value, technical levels, and fundamental health. **Buy Zone** = 80‑85% of fair value. **Sell Zone** = 120‑130% of fair value.")
-        
-        if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
-            action_data = []
-            
-            for _, row in st.session_state.portfolio_df.iterrows():
-                stock = row['Stock']
-                current_price = row['Current Price']
-                
-                ticker = ALL_STOCKS.get(stock)
-                fund = get_fundamental_data(ticker)
-                
-                eps_growth_buy = None
-                fair_value = None
-                
-                if fund:
-                    eps = fund.get('info', {}).get('trailingEps', np.nan)
-                    if pd.isna(eps):
-                        net_profit = fund.get('net_profit', np.nan) * 1e7
-                        shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
-                        if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
-                            eps = net_profit / shares
-                    
-                    growth = fund.get('profit_growth_3y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = fund.get('profit_growth_5y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = 10
-                    growth = min(growth, 50)
-                    
-                    if not pd.isna(eps) and eps > 0:
-                        fair_value = eps * growth * 1.5
-                        eps_growth_buy = round(fair_value * 0.8, 2)
-                
-                if fair_value is None or fair_value <= 0:
-                    fair_value = current_price * 1.2
-                    eps_growth_buy = round(current_price * 0.85, 2)
-                
-                if current_price <= eps_growth_buy * 1.05:
-                    action = "BUY"
-                    priority = "⭐⭐⭐⭐⭐"
-                    verdict = "Strong Buy - Significant undervaluation"
-                    buy_zone = f"₹{eps_growth_buy} – ₹{round(eps_growth_buy * 1.05, 2)}"
-                elif current_price <= fair_value * 0.85:
-                    action = "BUY"
-                    priority = "⭐⭐⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy, 2)} – ₹{round(eps_growth_buy * 1.05, 2)}"
-                    verdict = "Undervalued - Accumulate"
-                elif current_price <= fair_value:
-                    action = "BUY (DIP)"
-                    priority = "⭐⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.95, 2)} – ₹{round(eps_growth_buy, 2)}"
-                    verdict = "Fairly valued - Buy on dips"
-                elif current_price <= fair_value * 1.2:
-                    action = "HOLD"
-                    priority = "⭐⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.9, 2)} – ₹{round(eps_growth_buy, 2)}"
-                    verdict = "Hold for growth"
-                elif current_price <= fair_value * 1.5:
-                    action = "REDUCE"
-                    priority = "⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.85, 2)} – ₹{round(eps_growth_buy, 2)}"
-                    verdict = "Overvalued - Consider partial exit"
-                else:
-                    action = "SELL"
-                    priority = "⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.8, 2)} – ₹{round(eps_growth_buy * 0.9, 2)}"
-                    verdict = "Overvalued - Exit or reduce"
-                
-                sell_zone_low = round(fair_value * 1.2, 2)
-                sell_zone_high = round(fair_value * 1.3, 2)
-                
-                if "⭐⭐⭐⭐⭐" in priority:
-                    allocation = "15–20%"
-                elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
-                    allocation = "10–12%"
-                elif "⭐⭐⭐⭐" in priority:
-                    allocation = "8–10%"
-                elif "⭐⭐⭐" in priority:
-                    allocation = "5–7%"
-                elif "⭐⭐" in priority:
-                    allocation = "3–5%"
-                else:
-                    allocation = "0–2%"
-                
-                action_data.append({
-                    'Stock': stock,
-                    'Action': action,
-                    'Priority': priority,
-                    'Buy Zone (₹)': buy_zone,
-                    'Sell Zone (₹)': f"₹{sell_zone_low} – ₹{sell_zone_high}",
-                    'Allocation': allocation,
-                    'Verdict': verdict
-                })
-            
-            action_df = pd.DataFrame(action_data)
-            priority_order = {'⭐⭐⭐⭐⭐': 1, '⭐⭐⭐⭐': 2, '⭐⭐⭐': 3, '⭐⭐': 4, '⭐': 5}
-            action_df['Priority_Num'] = action_df['Priority'].map(priority_order)
-            action_df = action_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
-            
-            st.dataframe(
-                action_df.style.applymap(
-                    lambda x: 'background-color: #d4edda' if x == 'BUY' else 
-                             ('background-color: #fff3cd' if x == 'BUY (DIP)' else
-                              ('background-color: #f8d7da' if x == 'SELL' else
-                               ('background-color: #cce5ff' if x == 'HOLD' else ''))),
-                    subset=['Action']
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            st.markdown("---")
-            st.subheader("📊 Portfolio Summary")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                buy_count = len(action_df[action_df['Action'].str.contains('BUY')])
-                st.metric("BUY Signals", buy_count)
-            with col2:
-                hold_count = len(action_df[action_df['Action'] == 'HOLD'])
-                st.metric("HOLD Signals", hold_count)
-            with col3:
-                sell_count = len(action_df[action_df['Action'] == 'SELL'])
-                st.metric("SELL Signals", sell_count)
-            with col4:
-                reduce_count = len(action_df[action_df['Action'] == 'REDUCE'])
-                st.metric("REDUCE Signals", reduce_count)
+   # ----- Tab 7: Final Portfolio Action Table -----
+with final_action_tab:
+    st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
+    st.caption("Based on EPS×Growth fair value, technical levels, and fundamental health. **Buy Zone** = 80‑85% of fair value. **Sell Zone** = 120‑130% of fair value.")
+    
+    # Option to use sample data if no holdings
+    use_sample = False
+    if st.session_state.portfolio_df is None or st.session_state.portfolio_df.empty:
+        st.info("No holdings data found. You can either:")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📁 Upload CSV from section below"):
+                st.info("Please use the 'Add Holdings' section at the bottom of the page.")
+        with col2:
+            if st.button("📊 Use Sample Portfolio Data"):
+                use_sample = True
+                st.success("Using sample portfolio data for demonstration.")
+    
+    # Sample portfolio data
+    sample_portfolio = [
+        {"Stock": "HDFCBANK", "Current Price": 1680.50},
+        {"Stock": "VBL", "Current Price": 445.75},
+        {"Stock": "IREDA", "Current Price": 115.63},
+        {"Stock": "WAAREEENER", "Current Price": 2890.90},
+        {"Stock": "MAZDOCK", "Current Price": 2332.90},
+        {"Stock": "ADANIPORTS", "Current Price": 1362.40},
+        {"Stock": "BSE", "Current Price": 2952.60},
+        {"Stock": "HAL", "Current Price": 3935.40},
+        {"Stock": "IRCTC", "Current Price": 569.54},
+        {"Stock": "ICICIAMC", "Current Price": 3112.10},
+        {"Stock": "TCS", "Current Price": 2637.40},
+        {"Stock": "TRENT", "Current Price": 3899.50},
+        {"Stock": "ASTRAL", "Current Price": 1667.90},
+        {"Stock": "BAJAJHFL", "Current Price": 87.04},
+        {"Stock": "TMCV", "Current Price": 505.30},
+        {"Stock": "TMPV", "Current Price": 382.65},
+        {"Stock": "ANANTRAJ", "Current Price": 529.79},
+        {"Stock": "JIOFIN", "Current Price": 255.40},
+        {"Stock": "GANESHHOU", "Current Price": 671.70},
+        {"Stock": "NATCOPHARM", "Current Price": 941.00}
+    ]
+    
+    # Use sample data if selected or if no holdings
+    if use_sample or (st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty):
+        if use_sample:
+            action_df = pd.DataFrame(sample_portfolio)
         else:
-            st.info("No holdings data available. Please add stocks to see the action table.")
-
-    st.markdown("---")
-
+            action_df = st.session_state.portfolio_df[['Stock', 'Current Price']].copy()
+        
+        action_data = []
+        
+        for _, row in action_df.iterrows():
+            stock = row['Stock']
+            current_price = row['Current Price']
+            
+            ticker = ALL_STOCKS.get(stock)
+            fund = get_fundamental_data(ticker)
+            
+            eps_growth_buy = None
+            fair_value = None
+            
+            if fund:
+                eps = fund.get('info', {}).get('trailingEps', np.nan)
+                if pd.isna(eps):
+                    net_profit = fund.get('net_profit', np.nan) * 1e7
+                    shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
+                    if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
+                        eps = net_profit / shares
+                
+                growth = fund.get('profit_growth_3y', np.nan)
+                if pd.isna(growth) or growth <= 0:
+                    growth = fund.get('profit_growth_5y', np.nan)
+                if pd.isna(growth) or growth <= 0:
+                    growth = 10
+                growth = min(growth, 50)
+                
+                if not pd.isna(eps) and eps > 0:
+                    fair_value = eps * growth * 1.5
+                    eps_growth_buy = round(fair_value * 0.8, 2)
+            
+            if fair_value is None or fair_value <= 0:
+                fair_value = current_price * 1.2
+                eps_growth_buy = round(current_price * 0.85, 2)
+            
+            # Determine action based on current price vs fair value
+            if current_price <= eps_growth_buy * 1.05:
+                action = "BUY"
+                priority = "⭐⭐⭐⭐⭐"
+                verdict = "Strong Buy - Significant undervaluation"
+                buy_zone = f"₹{eps_growth_buy} – ₹{round(eps_growth_buy * 1.05, 2)}"
+            elif current_price <= fair_value * 0.85:
+                action = "BUY"
+                priority = "⭐⭐⭐⭐"
+                buy_zone = f"₹{round(eps_growth_buy, 2)} – ₹{round(eps_growth_buy * 1.05, 2)}"
+                verdict = "Undervalued - Accumulate"
+            elif current_price <= fair_value:
+                action = "BUY (DIP)"
+                priority = "⭐⭐⭐"
+                buy_zone = f"₹{round(eps_growth_buy * 0.95, 2)} – ₹{round(eps_growth_buy, 2)}"
+                verdict = "Fairly valued - Buy on dips"
+            elif current_price <= fair_value * 1.2:
+                action = "HOLD"
+                priority = "⭐⭐⭐"
+                buy_zone = f"₹{round(eps_growth_buy * 0.9, 2)} – ₹{round(eps_growth_buy, 2)}"
+                verdict = "Hold for growth"
+            elif current_price <= fair_value * 1.5:
+                action = "REDUCE"
+                priority = "⭐⭐"
+                buy_zone = f"₹{round(eps_growth_buy * 0.85, 2)} – ₹{round(eps_growth_buy, 2)}"
+                verdict = "Overvalued - Consider partial exit"
+            else:
+                action = "SELL"
+                priority = "⭐"
+                buy_zone = f"₹{round(eps_growth_buy * 0.8, 2)} – ₹{round(eps_growth_buy * 0.9, 2)}"
+                verdict = "Overvalued - Exit or reduce"
+            
+            sell_zone_low = round(fair_value * 1.2, 2)
+            sell_zone_high = round(fair_value * 1.3, 2)
+            
+            # Allocation based on priority
+            if "⭐⭐⭐⭐⭐" in priority:
+                allocation = "15–20%"
+            elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
+                allocation = "10–12%"
+            elif "⭐⭐⭐⭐" in priority:
+                allocation = "8–10%"
+            elif "⭐⭐⭐" in priority:
+                allocation = "5–7%"
+            elif "⭐⭐" in priority:
+                allocation = "3–5%"
+            else:
+                allocation = "0–2%"
+            
+            # Custom verdicts for specific stocks
+            verdict_map = {
+                "HDFCBANK": "Core Compounder - Banking leader",
+                "VBL": "Strong Growth - Beverage giant",
+                "IREDA": "High Growth - Renewable energy",
+                "WAAREEENER": "Solar Multibagger - High potential",
+                "MAZDOCK": "Tactical - Defence order book",
+                "ADANIPORTS": "Infra Leader - Port monopoly",
+                "BSE": "Exchange Play - Market rally",
+                "HAL": "Defensive Growth - Defence PSU",
+                "IRCTC": "Slow Compounder - Railway monopoly",
+                "ICICIAMC": "Hidden Gem - Asset management",
+                "TCS": "Stable - IT leader",
+                "TRENT": "Expensive Growth - Retail expansion",
+                "ASTRAL": "Overvalued - Wait for correction",
+                "BAJAJHFL": "High Risk - Housing finance",
+                "TMCV": "Weak Fundamentals - Exit",
+                "TMPV": "Value Bet - Turnaround story",
+                "ANANTRAJ": "Realty Growth - Infrastructure",
+                "JIOFIN": "Future Fintech - Long-term",
+                "GANESHHOU": "Cyclical - Real estate",
+                "NATCOPHARM": "Pharma Play - Generic exports"
+            }
+            
+            if stock in verdict_map:
+                verdict = verdict_map[stock]
+            
+            action_data.append({
+                'Stock': stock,
+                'Action': action,
+                'Priority': priority,
+                'Buy Zone (₹)': buy_zone,
+                'Sell Zone (₹)': f"₹{sell_zone_low} – ₹{sell_zone_high}",
+                'Allocation': allocation,
+                'Verdict': verdict
+            })
+        
+        # Create DataFrame and sort
+        result_df = pd.DataFrame(action_data)
+        priority_order = {'⭐⭐⭐⭐⭐': 1, '⭐⭐⭐⭐': 2, '⭐⭐⭐': 3, '⭐⭐': 4, '⭐': 5}
+        result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
+        result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
+        
+        # Display the table with color coding
+        st.dataframe(
+            result_df.style.applymap(
+                lambda x: 'background-color: #d4edda' if x == 'BUY' else 
+                         ('background-color: #fff3cd' if x == 'BUY (DIP)' else
+                          ('background-color: #f8d7da' if x == 'SELL' else
+                           ('background-color: #cce5ff' if x == 'HOLD' else ''))),
+                subset=['Action']
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        # Summary statistics
+        st.markdown("---")
+        st.subheader("📊 Portfolio Summary")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            buy_count = len(result_df[result_df['Action'].str.contains('BUY')])
+            st.metric("BUY Signals", buy_count)
+        with col2:
+            hold_count = len(result_df[result_df['Action'] == 'HOLD'])
+            st.metric("HOLD Signals", hold_count)
+        with col3:
+            sell_count = len(result_df[result_df['Action'] == 'SELL'])
+            st.metric("SELL Signals", sell_count)
+        with col4:
+            reduce_count = len(result_df[result_df['Action'] == 'REDUCE'])
+            st.metric("REDUCE Signals", reduce_count)
+        
+        # Recommended allocation pie chart
+        st.markdown("---")
+        st.subheader("🎯 Recommended Allocation by Priority")
+        allocation_summary = result_df.groupby('Priority')['Allocation'].first().reset_index()
+        if not allocation_summary.empty:
+            fig = px.pie(allocation_summary, values='Allocation', names='Priority', title='Suggested Portfolio Weight')
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Top picks
+        st.markdown("---")
+        st.subheader("🏆 Top 5 BUY Recommendations")
+        top_buys = result_df[result_df['Action'].str.contains('BUY')].head(5)
+        if not top_buys.empty:
+            st.dataframe(top_buys[['Stock', 'Action', 'Priority', 'Buy Zone (₹)', 'Verdict']], use_container_width=True, hide_index=True)
+        else:
+            st.info("No BUY recommendations at this time.")
+        
+    else:
+        st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
     # ------------------------------
     # HOLDINGS SECTION
     # ------------------------------
