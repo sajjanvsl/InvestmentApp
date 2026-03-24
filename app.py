@@ -28,7 +28,7 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# ENHANCED CSS (unchanged, professional)
+# ENHANCED CSS (professional, dark red header, white background)
 # ------------------------------
 st.markdown("""
 <style>
@@ -128,35 +128,6 @@ st.markdown("""
         font-size: 0.8rem;
         font-weight: 600;
         display: inline-block;
-    }
-    .fairvalue-tag {
-        background: #cce5ff;
-        color: #004085;
-        padding: 0.25rem 0.8rem;
-        border-radius: 30px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-    }
-    .criteria-pass {
-        color: #28a745;
-        font-weight: 600;
-        font-size: 1.2rem;
-    }
-    .criteria-fail {
-        color: #dc3545;
-        font-weight: 600;
-        font-size: 1.2rem;
-    }
-    .fresh-tag {
-        background: #cffafe;
-        color: #0e7490;
-        padding: 0.25rem 0.8rem;
-        border-radius: 30px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-        margin-left: 0.5rem;
     }
     .top-pick-badge {
         background: #ffc107;
@@ -275,7 +246,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# ALERT SYSTEM (unchanged)
+# ALERT SYSTEM
 # ------------------------------
 class AlertSystem:
     def __init__(self):
@@ -398,7 +369,7 @@ if 'price_alerts' not in st.session_state:
     st.session_state.price_alerts = {}
 
 # ------------------------------
-# AUTHENTICATION FUNCTIONS (unchanged)
+# AUTHENTICATION FUNCTIONS
 # ------------------------------
 USERS_FILE = "users.json"
 
@@ -444,7 +415,7 @@ if 'username' not in st.session_state:
     st.session_state.username = None
 
 # ------------------------------
-# MASTER STOCK LIST (all NSE stocks)
+# MASTER STOCK LIST
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -484,7 +455,7 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING FUNCTIONS (unchanged)
+# DATA FETCHING FUNCTIONS
 # ------------------------------
 def debug_data_fetch(ticker):
     try:
@@ -542,7 +513,7 @@ def get_intraday_data(ticker):
     return pd.DataFrame()
 
 # ------------------------------
-# DATA PERSISTENCE (unchanged)
+# DATA PERSISTENCE
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
@@ -602,7 +573,7 @@ def save_target_prices(target_dict):
         json.dump(target_dict, f, indent=2)
 
 # ------------------------------
-# FUNDAMENTAL FETCHING (unchanged)
+# FUNDAMENTAL FETCHING
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -714,7 +685,7 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# DCF FAIR VALUE (kept for reference, not used in holdings table)
+# DCF FAIR VALUE CALCULATION
 # ------------------------------
 def calculate_fair_value(fund):
     try:
@@ -761,7 +732,7 @@ def calculate_fair_value(fund):
         return None
 
 # ------------------------------
-# SCREENER FUNCTIONS (unchanged)
+# SCREENER FUNCTIONS
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -1074,7 +1045,7 @@ def intraday_picks():
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
-# SCREEN STOCK FUNCTION (for holdings recommendations)
+# SCREEN STOCK FUNCTION
 # ------------------------------
 def screen_stock(fund):
     if fund is None:
@@ -1139,7 +1110,7 @@ def screen_stock(fund):
     return rec, all_criteria, criteria_met, values
 
 # ------------------------------
-# LOGIN PAGE (unchanged)
+# LOGIN PAGE
 # ------------------------------
 def show_login():
     st.markdown("<h1 style='text-align: center; color: #8B0000;'>📈 Quant Fund Manager</h1>", unsafe_allow_html=True)
@@ -1271,14 +1242,15 @@ def main_app():
         st.write("If data fetch fails, try running this command in your terminal:")
         st.code("pip install --upgrade yfinance")
 
-    # ========== DEFINE ALL 6 TABS ==========
-    screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5, custom_fv_tab = st.tabs([
+    # ========== DEFINE ALL 7 TABS ==========
+    screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5, custom_fv_tab, final_action_tab = st.tabs([
         "🤖 AI Swing Scanner", 
         "💰 Fair Value Analysis (DCF)",
         "📈 Fundamental Breakout",
         "⚡ Intraday Breakout & Breakdown (5-min)",
         "🤖 AI Intraday Picks",
-        "📊 Custom Fair Value (EPS × Growth)"
+        "📊 Custom Fair Value (EPS × Growth)",
+        "📊 Final Portfolio Action Table"
     ])
 
     # ----- Tab 1: AI Swing Scanner -----
@@ -1312,11 +1284,167 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Fair Value Analysis (DCF) - placeholder -----
+    # ----- Tab 2: Fair Value Analysis (DCF) - COMPLETE VERSION -----
     with screener_tab2:
         st.markdown("## 💰 Fair Value Analysis (DCF)")
-        st.caption("Intrinsic value based on Discounted Cash Flow model.")
-        st.info("This tab uses the full DCF model. For the simple EPS×Growth formula, see the last tab.")
+        st.caption("Intrinsic value based on Discounted Cash Flow model. Buy when price is below fair value for a margin of safety.")
+        
+        with st.spinner("Calculating DCF fair values for all stocks..."):
+            dcf_data = []
+            total_stocks = len(ALL_STOCKS)
+            progress_bar = st.progress(0, text="Calculating DCF values...")
+            
+            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
+                df = get_price_data(ticker)
+                if df.empty:
+                    progress_bar.progress((idx+1)/total_stocks)
+                    continue
+                    
+                # Get current price
+                close_series = df['Close'].squeeze()
+                if isinstance(close_series, pd.Series):
+                    current_price = close_series.iloc[-1]
+                else:
+                    current_price = close_series
+                try:
+                    current_price = float(current_price)
+                except:
+                    progress_bar.progress((idx+1)/total_stocks)
+                    continue
+                
+                # Get fundamental data
+                fund = get_fundamental_data(ticker)
+                if fund is None:
+                    progress_bar.progress((idx+1)/total_stocks)
+                    continue
+                
+                # Calculate DCF fair value
+                fair_value = calculate_fair_value(fund)
+                
+                if fair_value and fair_value > 0 and current_price > 0:
+                    # Calculate valuation metrics
+                    if current_price < fair_value * 0.85:
+                        status = "🟢 UNDERVALUED"
+                        action = "BUY"
+                        recommendation = "Strong Buy - Significant discount to intrinsic value"
+                    elif current_price < fair_value:
+                        status = "🟡 SLIGHTLY UNDERVALUED"
+                        action = "BUY on dips"
+                        recommendation = "Moderate discount - Accumulate on weakness"
+                    elif current_price < fair_value * 1.15:
+                        status = "⚪ FAIRLY VALUED"
+                        action = "HOLD"
+                        recommendation = "Trading near fair value - Hold for now"
+                    elif current_price < fair_value * 1.3:
+                        status = "🟠 SLIGHTLY OVERVALUED"
+                        action = "REDUCE"
+                        recommendation = "Premium to fair value - Consider partial profit booking"
+                    else:
+                        status = "🔴 OVERVALUED"
+                        action = "SELL"
+                        recommendation = "Significant premium - Exit or reduce aggressively"
+                    
+                    discount_pct = ((fair_value - current_price) / fair_value) * 100
+                    
+                    dcf_data.append({
+                        'Stock': name,
+                        'Current Price': current_price,
+                        'DCF Fair Value': fair_value,
+                        'Discount %': discount_pct,
+                        'Status': status,
+                        'Action': action,
+                        'Recommendation': recommendation,
+                        'FCF (Cr)': fund.get('avg_fcf', 0),
+                        'Growth 5Y %': fund.get('profit_growth_5y', 0),
+                        'ROCE %': fund.get('roce', 0),
+                        'D/E Ratio': fund.get('de_ratio', 0)
+                    })
+                progress_bar.progress((idx+1)/total_stocks)
+            progress_bar.empty()
+        
+        if dcf_data:
+            dcf_df = pd.DataFrame(dcf_data)
+            
+            st.markdown("### 🟢 Most Undervalued Stocks")
+            undervalued = dcf_df[dcf_df['Status'].str.contains('UNDERVALUED')].sort_values('Discount %', ascending=False).head(10)
+            if not undervalued.empty:
+                st.dataframe(
+                    undervalued[['Stock', 'Current Price', 'DCF Fair Value', 'Discount %', 'Action', 'ROCE %', 'Growth 5Y %']].style.format({
+                        'Current Price': '₹{:.2f}',
+                        'DCF Fair Value': '₹{:.2f}',
+                        'Discount %': '{:.1f}%',
+                        'ROCE %': '{:.1f}%',
+                        'Growth 5Y %': '{:.1f}%'
+                    }),
+                    use_container_width=True
+                )
+            
+            st.markdown("---")
+            st.markdown("### 📊 Complete DCF Valuation")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                status_filter = st.multiselect(
+                    "Filter by Status",
+                    options=dcf_df['Status'].unique(),
+                    default=dcf_df['Status'].unique()
+                )
+            with col2:
+                min_discount = st.slider("Minimum Discount %", -50, 100, -100, 10)
+            
+            filtered_df = dcf_df[dcf_df['Status'].isin(status_filter)]
+            filtered_df = filtered_df[filtered_df['Discount %'] >= min_discount]
+            
+            st.dataframe(
+                filtered_df.style.format({
+                    'Current Price': '₹{:.2f}',
+                    'DCF Fair Value': '₹{:.2f}',
+                    'Discount %': '{:.1f}%',
+                    'FCF (Cr)': '₹{:.2f}',
+                    'Growth 5Y %': '{:.1f}%',
+                    'ROCE %': '{:.1f}%',
+                    'D/E Ratio': '{:.2f}'
+                }).applymap(
+                    lambda x: 'background-color: #d4edda' if x == '🟢 UNDERVALUED' else
+                             ('background-color: #fff3cd' if x == '🟡 SLIGHTLY UNDERVALUED' else
+                              ('background-color: #f8d7da' if x == '🔴 OVERVALUED' else '')),
+                    subset=['Status']
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            st.markdown("---")
+            st.subheader("📊 DCF Valuation Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                undervalued_count = len(dcf_df[dcf_df['Status'].str.contains('UNDERVALUED')])
+                st.metric("Undervalued Stocks", undervalued_count)
+            with col2:
+                fairly_valued = len(dcf_df[dcf_df['Status'] == '⚪ FAIRLY VALUED'])
+                st.metric("Fairly Valued", fairly_valued)
+            with col3:
+                overvalued = len(dcf_df[dcf_df['Status'].str.contains('OVERVALUED')])
+                st.metric("Overvalued", overvalued)
+            with col4:
+                avg_discount = dcf_df[dcf_df['Discount %'] > 0]['Discount %'].mean()
+                st.metric("Avg Discount", f"{avg_discount:.1f}%" if not pd.isna(avg_discount) else "N/A")
+            
+            st.markdown("---")
+            st.subheader("🎯 Top DCF Picks (Highest Discount)")
+            top_picks = dcf_df.nlargest(10, 'Discount %')
+            st.dataframe(
+                top_picks[['Stock', 'Current Price', 'DCF Fair Value', 'Discount %', 'Action', 'Recommendation']].style.format({
+                    'Current Price': '₹{:.2f}',
+                    'DCF Fair Value': '₹{:.2f}',
+                    'Discount %': '{:.1f}%'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No DCF data available. Please check your internet connection and try refreshing the data.")
 
     # ----- Tab 3: Fundamental Breakout (placeholder) -----
     with screener_tab3:
@@ -1366,13 +1494,11 @@ def main_app():
         else:
             no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
-    # ----- Tab 6: Custom Fair Value (EPS × Growth) with growth cap -----
+    # ----- Tab 6: Custom Fair Value (EPS × Growth) -----
     with custom_fv_tab:
         st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
         st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
-        st.caption("Growth rate is capped at 50% to avoid unrealistic values.")
-
-        # List of stocks to analyze
+        
         stock_list = [
             {"name": "HAL", "category": "🟢 Core High-Conviction", "symbol": "HAL.NS"},
             {"name": "MAZDOCK", "category": "🟢 Core High-Conviction", "symbol": "MAZDOCK.NS"},
@@ -1385,37 +1511,34 @@ def main_app():
             {"name": "ANANTRAJ", "category": "🚀 High Growth / High Risk", "symbol": "ANANTRAJ.NS"},
             {"name": "BAJAJHFL", "category": "⚠️ Defensive / Low Growth", "symbol": "BAJAJHFL.NS"}
         ]
-
+        
         rows = []
         for stock in stock_list:
             fund = get_fundamental_data(stock["symbol"])
             if fund is None:
                 continue
-
-            # EPS
+            
             eps = fund.get('info', {}).get('trailingEps', np.nan)
             if pd.isna(eps):
                 net_profit = fund.get('net_profit', np.nan) * 1e7
                 shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
                 if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
                     eps = net_profit / shares
-
-            # Growth – prefer 3‑year, then 5‑year, then default 10%, capped at 50%
+            
             growth = fund.get('profit_growth_3y', np.nan)
             if pd.isna(growth) or growth <= 0:
                 growth = fund.get('profit_growth_5y', np.nan)
             if pd.isna(growth) or growth <= 0:
                 growth = 10
-            # Cap growth at 50% to avoid extreme valuations
             growth = min(growth, 50)
-
+            
             if pd.isna(eps) or eps <= 0:
                 continue
-
+            
             fair_value = eps * growth * 1.5
             buy_low = fair_value * 0.80
             buy_high = fair_value * 0.85
-
+            
             rows.append({
                 "Category": stock["category"],
                 "Stock": stock["name"],
@@ -1424,7 +1547,7 @@ def main_app():
                 "Fair Value (₹)": round(fair_value, 2),
                 "Buy Below (₹)": f"₹{round(buy_low, 2)} – ₹{round(buy_high, 2)}"
             })
-
+        
         if rows:
             df = pd.DataFrame(rows)
             for category, group in df.groupby("Category"):
@@ -1437,10 +1560,144 @@ def main_app():
         else:
             st.info("No data available. Check your internet connection or stock symbols.")
 
+    # ----- Tab 7: Final Portfolio Action Table -----
+    with final_action_tab:
+        st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
+        st.caption("Based on EPS×Growth fair value, technical levels, and fundamental health. **Buy Zone** = 80‑85% of fair value. **Sell Zone** = 120‑130% of fair value.")
+        
+        if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
+            action_data = []
+            
+            for _, row in st.session_state.portfolio_df.iterrows():
+                stock = row['Stock']
+                current_price = row['Current Price']
+                
+                ticker = ALL_STOCKS.get(stock)
+                fund = get_fundamental_data(ticker)
+                
+                eps_growth_buy = None
+                fair_value = None
+                
+                if fund:
+                    eps = fund.get('info', {}).get('trailingEps', np.nan)
+                    if pd.isna(eps):
+                        net_profit = fund.get('net_profit', np.nan) * 1e7
+                        shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
+                        if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
+                            eps = net_profit / shares
+                    
+                    growth = fund.get('profit_growth_3y', np.nan)
+                    if pd.isna(growth) or growth <= 0:
+                        growth = fund.get('profit_growth_5y', np.nan)
+                    if pd.isna(growth) or growth <= 0:
+                        growth = 10
+                    growth = min(growth, 50)
+                    
+                    if not pd.isna(eps) and eps > 0:
+                        fair_value = eps * growth * 1.5
+                        eps_growth_buy = round(fair_value * 0.8, 2)
+                
+                if fair_value is None or fair_value <= 0:
+                    fair_value = current_price * 1.2
+                    eps_growth_buy = round(current_price * 0.85, 2)
+                
+                if current_price <= eps_growth_buy * 1.05:
+                    action = "BUY"
+                    priority = "⭐⭐⭐⭐⭐"
+                    verdict = "Strong Buy - Significant undervaluation"
+                    buy_zone = f"₹{eps_growth_buy} – ₹{round(eps_growth_buy * 1.05, 2)}"
+                elif current_price <= fair_value * 0.85:
+                    action = "BUY"
+                    priority = "⭐⭐⭐⭐"
+                    buy_zone = f"₹{round(eps_growth_buy, 2)} – ₹{round(eps_growth_buy * 1.05, 2)}"
+                    verdict = "Undervalued - Accumulate"
+                elif current_price <= fair_value:
+                    action = "BUY (DIP)"
+                    priority = "⭐⭐⭐"
+                    buy_zone = f"₹{round(eps_growth_buy * 0.95, 2)} – ₹{round(eps_growth_buy, 2)}"
+                    verdict = "Fairly valued - Buy on dips"
+                elif current_price <= fair_value * 1.2:
+                    action = "HOLD"
+                    priority = "⭐⭐⭐"
+                    buy_zone = f"₹{round(eps_growth_buy * 0.9, 2)} – ₹{round(eps_growth_buy, 2)}"
+                    verdict = "Hold for growth"
+                elif current_price <= fair_value * 1.5:
+                    action = "REDUCE"
+                    priority = "⭐⭐"
+                    buy_zone = f"₹{round(eps_growth_buy * 0.85, 2)} – ₹{round(eps_growth_buy, 2)}"
+                    verdict = "Overvalued - Consider partial exit"
+                else:
+                    action = "SELL"
+                    priority = "⭐"
+                    buy_zone = f"₹{round(eps_growth_buy * 0.8, 2)} – ₹{round(eps_growth_buy * 0.9, 2)}"
+                    verdict = "Overvalued - Exit or reduce"
+                
+                sell_zone_low = round(fair_value * 1.2, 2)
+                sell_zone_high = round(fair_value * 1.3, 2)
+                
+                if "⭐⭐⭐⭐⭐" in priority:
+                    allocation = "15–20%"
+                elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
+                    allocation = "10–12%"
+                elif "⭐⭐⭐⭐" in priority:
+                    allocation = "8–10%"
+                elif "⭐⭐⭐" in priority:
+                    allocation = "5–7%"
+                elif "⭐⭐" in priority:
+                    allocation = "3–5%"
+                else:
+                    allocation = "0–2%"
+                
+                action_data.append({
+                    'Stock': stock,
+                    'Action': action,
+                    'Priority': priority,
+                    'Buy Zone (₹)': buy_zone,
+                    'Sell Zone (₹)': f"₹{sell_zone_low} – ₹{sell_zone_high}",
+                    'Allocation': allocation,
+                    'Verdict': verdict
+                })
+            
+            action_df = pd.DataFrame(action_data)
+            priority_order = {'⭐⭐⭐⭐⭐': 1, '⭐⭐⭐⭐': 2, '⭐⭐⭐': 3, '⭐⭐': 4, '⭐': 5}
+            action_df['Priority_Num'] = action_df['Priority'].map(priority_order)
+            action_df = action_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
+            
+            st.dataframe(
+                action_df.style.applymap(
+                    lambda x: 'background-color: #d4edda' if x == 'BUY' else 
+                             ('background-color: #fff3cd' if x == 'BUY (DIP)' else
+                              ('background-color: #f8d7da' if x == 'SELL' else
+                               ('background-color: #cce5ff' if x == 'HOLD' else ''))),
+                    subset=['Action']
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            st.markdown("---")
+            st.subheader("📊 Portfolio Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                buy_count = len(action_df[action_df['Action'].str.contains('BUY')])
+                st.metric("BUY Signals", buy_count)
+            with col2:
+                hold_count = len(action_df[action_df['Action'] == 'HOLD'])
+                st.metric("HOLD Signals", hold_count)
+            with col3:
+                sell_count = len(action_df[action_df['Action'] == 'SELL'])
+                st.metric("SELL Signals", sell_count)
+            with col4:
+                reduce_count = len(action_df[action_df['Action'] == 'REDUCE'])
+                st.metric("REDUCE Signals", reduce_count)
+        else:
+            st.info("No holdings data available. Please add stocks to see the action table.")
+
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (with EPS×Growth Buy Price, growth capped)
+    # HOLDINGS SECTION
     # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
@@ -1453,7 +1710,7 @@ def main_app():
             buy_count = 0
             hold_count = 0
             sell_count = 0
-
+            
             for idx, row in st.session_state.holdings_df.iterrows():
                 name = row['Instrument']
                 ticker = ALL_STOCKS.get(name)
@@ -1469,7 +1726,7 @@ def main_app():
                     current_price = float(current_price)
                 except:
                     continue
-
+                
                 cur_value = row['Qty'] * current_price
                 if not pd.isna(row['Avg Price']):
                     pnl = row['Qty'] * (current_price - row['Avg Price'])
@@ -1487,8 +1744,7 @@ def main_app():
                     hold_count += 1
                 else:
                     sell_count += 1
-
-                # Compute EPS×Growth Buy Price (capped growth)
+                
                 eps_growth_buy = None
                 if fund:
                     eps = fund.get('info', {}).get('trailingEps', np.nan)
@@ -1502,11 +1758,11 @@ def main_app():
                         growth = fund.get('profit_growth_5y', np.nan)
                     if pd.isna(growth) or growth <= 0:
                         growth = 10
-                    growth = min(growth, 50)  # Cap growth
+                    growth = min(growth, 50)
                     if not pd.isna(eps) and eps > 0:
                         fair_value = eps * growth * 1.5
                         eps_growth_buy = round(fair_value * 0.8, 2)
-
+                
                 portfolio_data.append({
                     'Stock': name,
                     'Qty': row['Qty'],
@@ -1528,7 +1784,7 @@ def main_app():
                 total_value += cur_value
                 if not pd.isna(row['Avg Price']):
                     total_cost += row['Qty'] * row['Avg Price']
-
+            
             st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
             st.session_state.total_value = total_value
             st.session_state.total_cost = total_cost
@@ -1538,11 +1794,10 @@ def main_app():
             st.session_state.sell_count = sell_count
             st.session_state.debug_df = pd.DataFrame(debug_data)
             st.session_state.criteria_data = criteria_data
-
+        
         st.markdown("## 📊 SUPER SCREENER RANKING")
         st.markdown("Based on combined 19‑factor formula. **SUPER BUY** = ≥15 criteria, BUY = 12-14, HOLD = 6-11, SELL = 0-5.")
-
-        # Debug expander
+        
         with st.expander("🔍 Detailed Criteria Analysis for Your Holdings"):
             st.write("### 📋 Criteria Check for Each Stock")
             st.write("Click on a stock to see which of the 19 criteria are met:")
@@ -1566,8 +1821,7 @@ def main_app():
                     st.dataframe(debug_df, width='stretch')
             else:
                 st.info("No debug data available.")
-
-        # Metrics
+        
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             try:
@@ -1594,8 +1848,7 @@ def main_app():
             st.markdown(f'<div class="metric-card"><div class="metric-label">SUPER BUY / BUY / HOLD / SELL</div><div class="metric-value">{st.session_state.super_buy_count} / {st.session_state.buy_count} / {st.session_state.hold_count} / {st.session_state.sell_count}</div></div>', unsafe_allow_html=True)
         with col4:
             st.markdown(f'<div class="metric-card"><div class="metric-label">Portfolio Size</div><div class="metric-value">{len(st.session_state.portfolio_df)}</div></div>', unsafe_allow_html=True)
-
-        # Allocation pie
+        
         col1, col2 = st.columns([1, 1])
         with col1:
             st.subheader("Portfolio Allocation by Value")
@@ -1607,21 +1860,20 @@ def main_app():
         with col2:
             st.subheader("Performance Sparkline")
             st.info("Coming soon")
-
+        
         st.markdown("---")
         st.subheader("Your Holdings – Combined Screener Analysis")
         st.caption("Edit Qty and Avg Price directly in the table. Check 'Delete' and click 'Delete Selected' to sell stock(s).")
-
+        
         if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
             edit_df = st.session_state.portfolio_df.copy()
             edit_df.insert(0, 'Sl.No', range(1, len(edit_df) + 1))
             edit_df['Delete'] = False
-
-            # Reorder columns to include EPS×Growth Buy
+            
             column_order = ['Sl.No', 'Stock', 'Qty', 'Avg Price', 'LTP (CSV)', 'Current Price', 'Cur Value', 'P&L', 'P&L %', 'Recommendation', 'Criteria Met', 'EPS×Growth Buy', 'Delete']
             column_order = [c for c in column_order if c in edit_df.columns]
             edit_df = edit_df[column_order]
-
+            
             column_config = {
                 'Sl.No': st.column_config.NumberColumn('Sl.No', disabled=True),
                 'Stock': st.column_config.TextColumn('Stock', disabled=True),
@@ -1637,7 +1889,7 @@ def main_app():
                 'EPS×Growth Buy': st.column_config.NumberColumn('EPS×Growth Buy', disabled=True, format="₹%.2f"),
                 'Delete': st.column_config.CheckboxColumn('Delete')
             }
-
+            
             st.markdown('<div class="holdings-table">', unsafe_allow_html=True)
             edited_df = st.data_editor(
                 edit_df,
@@ -1647,13 +1899,13 @@ def main_app():
                 num_rows="fixed"
             )
             st.markdown('</div>', unsafe_allow_html=True)
-
+            
             changes_made = False
             for col in ['Qty', 'Avg Price']:
                 if col in edited_df.columns and not edited_df[col].equals(edit_df[col]):
                     changes_made = True
                     break
-
+            
             if changes_made:
                 for idx, row in edited_df.iterrows():
                     stock_name = row['Stock']
@@ -1664,7 +1916,7 @@ def main_app():
                 save_holdings(st.session_state.holdings_df)
                 st.session_state.portfolio_df = None
                 st.rerun()
-
+            
             selected_for_deletion = edited_df[edited_df['Delete'] == True]
             if not selected_for_deletion.empty:
                 st.warning(f"{len(selected_for_deletion)} stock(s) selected for deletion.")
@@ -1686,7 +1938,7 @@ def main_app():
                     save_holdings(st.session_state.holdings_df)
                     st.session_state.portfolio_df = None
                     st.rerun()
-
+            
             st.markdown("#### Sold History")
             if not st.session_state.sold_history.empty:
                 st.dataframe(st.session_state.sold_history, width='stretch')
@@ -1696,7 +1948,7 @@ def main_app():
             st.info("No holdings data available.")
     else:
         st.info("No holdings data. Please add stocks using the section below.")
-
+    
     # ------------------------------
     # INPUT SECTION
     # ------------------------------
@@ -1707,7 +1959,7 @@ def main_app():
         uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
     with col2:
         single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA or MCX").strip().upper()
-
+    
     if uploaded_file is not None:
         try:
             raw_df = pd.read_csv(uploaded_file, skipinitialspace=True, engine='python')
@@ -1733,7 +1985,7 @@ def main_app():
                     st.rerun()
         except Exception as e:
             st.error(f"Error reading CSV: {e}")
-
+    
     if single_stock:
         clean_stock = single_stock.replace('.NS', '').strip()
         if clean_stock in ALL_STOCKS:
@@ -1764,7 +2016,7 @@ def main_app():
                 st.rerun()
         else:
             st.error(f"{clean_stock} not found in master list. Please check the symbol (e.g., MCX, CIPLA).")
-
+    
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))
