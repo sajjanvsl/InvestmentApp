@@ -1183,7 +1183,9 @@ def no_stocks_message(screener_name, criteria_description):
 # MAIN APP
 # ------------------------------
 def main_app():
-    # Session state initialization
+    # ------------------------------
+    # Session state initialization (ensure all keys exist)
+    # ------------------------------
     if 'holdings_df' not in st.session_state:
         st.session_state.holdings_df = load_holdings()
     if 'portfolio_df' not in st.session_state:
@@ -1214,8 +1216,23 @@ def main_app():
         st.session_state.target_prices = load_target_prices()
     if 'settings' not in st.session_state:
         st.session_state.settings = load_settings()
+    
+    # Initialize alert system
+    if 'alert_system' not in st.session_state:
+        st.session_state.alert_system = AlertSystem()
+    
+    # Sync alert settings from stored settings into session state (used by AlertSystem)
+    st.session_state.email_enabled = st.session_state.settings.get('email_enabled', False)
+    st.session_state.email_sender = st.session_state.settings.get('email_sender', '')
+    st.session_state.email_password = st.session_state.settings.get('email_password', '')
+    st.session_state.email_recipient = st.session_state.settings.get('email_recipient', 'sajjanvsl@gmail.com')
+    st.session_state.telegram_enabled = st.session_state.settings.get('telegram_enabled', False)
+    st.session_state.telegram_bot_token = st.session_state.settings.get('telegram_bot_token', '')
+    st.session_state.telegram_chat_id = st.session_state.settings.get('telegram_chat_id', '@sajjanvsl')
 
-    # Header
+    # ------------------------------
+    # Header (unchanged)
+    # ------------------------------
     col1, col2 = st.columns([6, 1])
     with col1:
         st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#666;">Super Screener Edition</span></div>', unsafe_allow_html=True)
@@ -1227,7 +1244,9 @@ def main_app():
 
     st.markdown("#### Combined screener: Original 9‑factor + Magic Formula (19 criteria total)")
 
-    # Alert Settings with persistence and test button
+    # ------------------------------
+    # Alert Settings (with test button)
+    # ------------------------------
     with st.expander("📧 Alert Settings (Email / Telegram)"):
         st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -1259,7 +1278,7 @@ def main_app():
                 "telegram_chat_id": telegram_chat_id
             }
             save_settings(st.session_state.settings)
-            # Also update the session state used by AlertSystem
+            # Update the session state variables used by the alert system
             st.session_state.email_enabled = email_enabled
             st.session_state.email_sender = email_sender
             st.session_state.email_password = email_password
@@ -1271,15 +1290,14 @@ def main_app():
         
         # Test alert button
         if st.button("🔔 Send Test Alert"):
-            alert_system = st.session_state.alert_system
             if st.session_state.get('email_enabled', False):
-                result = alert_system.send_email_alert("TEST", 100, 90)
+                result = st.session_state.alert_system.send_email_alert("TEST", 100, 90)
                 if result:
                     st.success("Test email sent!")
                 else:
                     st.error("Test email failed. Check email settings.")
             if st.session_state.get('telegram_enabled', False):
-                result = alert_system.send_telegram_alert("TEST", 100, 90)
+                result = st.session_state.alert_system.send_telegram_alert("TEST", 100, 90)
                 if result:
                     st.success("Test Telegram message sent!")
                 else:
@@ -1287,6 +1305,11 @@ def main_app():
         
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather and get your chat ID from @userinfobot.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # ------------------------------
+    # Refresh button, debug expander, and tabs (unchanged)
+    # ------------------------------
+    # ... (rest of the code remains exactly as before)
 
     # Refresh button
     if st.button("🔄 Refresh Data"):
