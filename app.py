@@ -1248,8 +1248,8 @@ def main_app():
     # Alert Settings (with test button)
     # ------------------------------
     with st.expander("📧 Alert Settings (Email / Telegram)"):
-    st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
+        st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
     with col1:
         st.subheader("📧 Email Settings")
         email_enabled = st.checkbox("Enable Email Alerts", value=st.session_state.settings.get("email_enabled", False), key="email_enabled_input")
