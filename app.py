@@ -28,7 +28,7 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# ENHANCED CSS (professional, dark red header, white background)
+# ENHANCED CSS (unchanged, professional)
 # ------------------------------
 st.markdown("""
 <style>
@@ -246,7 +246,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# ALERT SYSTEM (unchanged)
+# ALERT SYSTEM (with improved error handling)
 # ------------------------------
 class AlertSystem:
     def __init__(self):
@@ -328,23 +328,26 @@ class AlertSystem:
         if not all([bot_token, chat_id]):
             return False
             
-        message = f"""🚨 *BUY ALERT: {stock_name}*
+        message = f"""🚨 BUY ALERT: {stock_name}
         
-📊 *Current Price:* ₹{current_price:.2f}
-🎯 *Your Target:* ₹{target_price:.2f}
-⏰ *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Current Price: ₹{current_price:.2f}
+Your Target: ₹{target_price:.2f}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_This is an automated alert from Quant Fund Manager._"""
+This is an automated alert from Quant Fund Manager."""
         
         try:
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             payload = {
                 'chat_id': chat_id,
-                'text': message,
-                'parse_mode': 'Markdown'
+                'text': message
             }
             response = requests.post(url, json=payload)
-            return response.status_code == 200
+            if response.status_code == 200:
+                return True
+            else:
+                st.error(f"Telegram error: {response.text}")
+                return False
         except Exception as e:
             st.error(f"Telegram failed: {str(e)}")
             return False
@@ -361,15 +364,34 @@ _This is an automated alert from Quant Fund Manager._"""
                         alerts_sent.append(f"Telegram at ₹{target_price:.2f}")
         return alerts_sent
 
-if 'alert_system' not in st.session_state:
-    st.session_state.alert_system = AlertSystem()
-if 'target_prices' not in st.session_state:
-    st.session_state.target_prices = {}
-if 'price_alerts' not in st.session_state:
-    st.session_state.price_alerts = {}
+# ------------------------------
+# SETTINGS PERSISTENCE
+# ------------------------------
+SETTINGS_FILE = "settings.json"
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        "email_enabled": False,
+        "email_sender": "",
+        "email_password": "",
+        "email_recipient": "sajjanvsl@gmail.com",
+        "telegram_enabled": False,
+        "telegram_bot_token": "",
+        "telegram_chat_id": "@sajjanvsl"
+    }
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f, indent=2)
 
 # ------------------------------
-# AUTHENTICATION FUNCTIONS
+# AUTHENTICATION FUNCTIONS (unchanged)
 # ------------------------------
 USERS_FILE = "users.json"
 
@@ -409,13 +431,8 @@ def reset_password(username, new_password):
         return True
     return False
 
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'username' not in st.session_state:
-    st.session_state.username = None
-
 # ------------------------------
-# MASTER STOCK LIST
+# MASTER STOCK LIST (all NSE stocks)
 # ------------------------------
 ALL_STOCKS = {
     "CIPLA": "CIPLA.NS",
@@ -455,7 +472,7 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING FUNCTIONS
+# DATA FETCHING FUNCTIONS (unchanged)
 # ------------------------------
 def debug_data_fetch(ticker):
     try:
@@ -513,7 +530,7 @@ def get_intraday_data(ticker):
     return pd.DataFrame()
 
 # ------------------------------
-# DATA PERSISTENCE
+# DATA PERSISTENCE (unchanged)
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
@@ -573,7 +590,7 @@ def save_target_prices(target_dict):
         json.dump(target_dict, f, indent=2)
 
 # ------------------------------
-# FUNDAMENTAL FETCHING
+# FUNDAMENTAL FETCHING (unchanged)
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -685,7 +702,7 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# DCF FAIR VALUE CALCULATION
+# DCF FAIR VALUE CALCULATION (unchanged)
 # ------------------------------
 def calculate_fair_value(fund):
     try:
@@ -732,7 +749,7 @@ def calculate_fair_value(fund):
         return None
 
 # ------------------------------
-# SCREENER FUNCTIONS
+# SCREENER FUNCTIONS (unchanged)
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -1189,6 +1206,8 @@ def main_app():
         st.session_state.last_refresh = datetime.now()
     if 'target_prices' not in st.session_state:
         st.session_state.target_prices = load_target_prices()
+    if 'settings' not in st.session_state:
+        st.session_state.settings = load_settings()
 
     # Header
     col1, col2 = st.columns([6, 1])
@@ -1202,24 +1221,64 @@ def main_app():
 
     st.markdown("#### Combined screener: Original 9‑factor + Magic Formula (19 criteria total)")
 
-    # Alert Settings
+    # Alert Settings with persistence and test button
     with st.expander("📧 Alert Settings (Email / Telegram)"):
         st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("📧 Email Settings")
-            st.checkbox("Enable Email Alerts", key="email_enabled", value=False)
-            st.text_input("Sender Email (Gmail)", key="email_sender", placeholder="your@gmail.com")
-            st.text_input("App Password", key="email_password", type="password", 
+            email_enabled = st.checkbox("Enable Email Alerts", value=st.session_state.settings.get("email_enabled", False), key="email_enabled_input")
+            email_sender = st.text_input("Sender Email (Gmail)", value=st.session_state.settings.get("email_sender", ""), key="email_sender_input", placeholder="your@gmail.com")
+            email_password = st.text_input("App Password", value=st.session_state.settings.get("email_password", ""), type="password", key="email_password_input",
                          help="Use Gmail App Password (not your regular password)")
-            st.text_input("Recipient Email", key="email_recipient", value="sajjanvsl@gmail.com")
+            email_recipient = st.text_input("Recipient Email", value=st.session_state.settings.get("email_recipient", "sajjanvsl@gmail.com"), key="email_recipient_input")
+        
         with col2:
             st.subheader("📱 Telegram Settings")
-            st.checkbox("Enable Telegram Alerts", key="telegram_enabled", value=False)
-            st.text_input("Bot Token", key="telegram_bot_token", 
+            telegram_enabled = st.checkbox("Enable Telegram Alerts", value=st.session_state.settings.get("telegram_enabled", False), key="telegram_enabled_input")
+            telegram_bot_token = st.text_input("Bot Token", value=st.session_state.settings.get("telegram_bot_token", ""), key="telegram_bot_token_input",
                          help="Get from @BotFather on Telegram")
-            st.text_input("Chat ID", key="telegram_chat_id", value="@sajjanvsl",
+            telegram_chat_id = st.text_input("Chat ID", value=st.session_state.settings.get("telegram_chat_id", "@sajjanvsl"), key="telegram_chat_id_input",
                          help="Your Telegram username or chat ID")
+        
+        # Save settings button
+        if st.button("💾 Save Alert Settings"):
+            st.session_state.settings = {
+                "email_enabled": email_enabled,
+                "email_sender": email_sender,
+                "email_password": email_password,
+                "email_recipient": email_recipient,
+                "telegram_enabled": telegram_enabled,
+                "telegram_bot_token": telegram_bot_token,
+                "telegram_chat_id": telegram_chat_id
+            }
+            save_settings(st.session_state.settings)
+            # Also update the session state used by AlertSystem
+            st.session_state.email_enabled = email_enabled
+            st.session_state.email_sender = email_sender
+            st.session_state.email_password = email_password
+            st.session_state.email_recipient = email_recipient
+            st.session_state.telegram_enabled = telegram_enabled
+            st.session_state.telegram_bot_token = telegram_bot_token
+            st.session_state.telegram_chat_id = telegram_chat_id
+            st.success("✅ Settings saved successfully!")
+        
+        # Test alert button
+        if st.button("🔔 Send Test Alert"):
+            alert_system = st.session_state.alert_system
+            if st.session_state.get('email_enabled', False):
+                result = alert_system.send_email_alert("TEST", 100, 90)
+                if result:
+                    st.success("Test email sent!")
+                else:
+                    st.error("Test email failed. Check email settings.")
+            if st.session_state.get('telegram_enabled', False):
+                result = alert_system.send_telegram_alert("TEST", 100, 90)
+                if result:
+                    st.success("Test Telegram message sent!")
+                else:
+                    st.error("Test Telegram failed. Check bot token and chat ID.")
+        
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather and get your chat ID from @userinfobot.")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1439,7 +1498,7 @@ def main_app():
     # ----- Tab 7: Final Portfolio Action Table -----
     with final_action_tab:
         st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
-        st.caption("Based on EPS×Growth fair value, technical levels, and fundamental health. **Buy Zone** = 80‑85% of fair value. **Sell Zone** = 120‑130% of fair value.")
+        st.caption("**Current Price** vs **Buy Zone** – Buy when price falls into the Buy Zone. **Sell Zone** is for profit booking.")
         
         # Option to use sample data if no holdings
         use_sample = False
@@ -1454,7 +1513,7 @@ def main_app():
                     use_sample = True
                     st.success("Using sample portfolio data for demonstration.")
         
-        # Sample portfolio data
+        # Sample portfolio data with realistic current prices
         sample_portfolio = [
             {"Stock": "HDFCBANK", "Current Price": 1680.50},
             {"Stock": "VBL", "Current Price": 445.75},
@@ -1475,7 +1534,17 @@ def main_app():
             {"Stock": "ANANTRAJ", "Current Price": 529.79},
             {"Stock": "JIOFIN", "Current Price": 255.40},
             {"Stock": "GANESHHOU", "Current Price": 671.70},
-            {"Stock": "NATCOPHARM", "Current Price": 941.00}
+            {"Stock": "NATCOPHARM", "Current Price": 941.00},
+            {"Stock": "MON100", "Current Price": 225.19},
+            {"Stock": "GOLDBEES", "Current Price": 131.60},
+            {"Stock": "SILVERBEES", "Current Price": 252.81},
+            {"Stock": "LIQUIDBEES", "Current Price": 999.99},
+            {"Stock": "SMALL250", "Current Price": 15.90},
+            {"Stock": "MCX", "Current Price": 1800.00},
+            {"Stock": "TRUALT", "Current Price": 401.40},
+            {"Stock": "CIPLA", "Current Price": 1348.20},
+            {"Stock": "NHPC", "Current Price": 75.33},
+            {"Stock": "AWHCL", "Current Price": 494.50}
         ]
         
         # Use sample data if selected or if no holdings
@@ -1525,35 +1594,50 @@ def main_app():
                     action = "BUY"
                     priority = "⭐⭐⭐⭐⭐"
                     verdict = "Strong Buy - Significant undervaluation"
-                    buy_zone = f"₹{eps_growth_buy} – ₹{round(eps_growth_buy * 1.05, 2)}"
+                    buy_zone_low = eps_growth_buy
+                    buy_zone_high = round(eps_growth_buy * 1.05, 2)
+                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                 elif current_price <= fair_value * 0.85:
                     action = "BUY"
                     priority = "⭐⭐⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy, 2)} – ₹{round(eps_growth_buy * 1.05, 2)}"
+                    buy_zone_low = round(eps_growth_buy, 2)
+                    buy_zone_high = round(eps_growth_buy * 1.05, 2)
+                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Undervalued - Accumulate"
                 elif current_price <= fair_value:
                     action = "BUY (DIP)"
                     priority = "⭐⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.95, 2)} – ₹{round(eps_growth_buy, 2)}"
+                    buy_zone_low = round(eps_growth_buy * 0.95, 2)
+                    buy_zone_high = round(eps_growth_buy, 2)
+                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Fairly valued - Buy on dips"
                 elif current_price <= fair_value * 1.2:
                     action = "HOLD"
                     priority = "⭐⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.9, 2)} – ₹{round(eps_growth_buy, 2)}"
+                    buy_zone_low = round(eps_growth_buy * 0.9, 2)
+                    buy_zone_high = round(eps_growth_buy, 2)
+                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Hold for growth"
                 elif current_price <= fair_value * 1.5:
                     action = "REDUCE"
                     priority = "⭐⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.85, 2)} – ₹{round(eps_growth_buy, 2)}"
+                    buy_zone_low = round(eps_growth_buy * 0.85, 2)
+                    buy_zone_high = round(eps_growth_buy, 2)
+                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Overvalued - Consider partial exit"
                 else:
                     action = "SELL"
                     priority = "⭐"
-                    buy_zone = f"₹{round(eps_growth_buy * 0.8, 2)} – ₹{round(eps_growth_buy * 0.9, 2)}"
+                    buy_zone_low = round(eps_growth_buy * 0.8, 2)
+                    buy_zone_high = round(eps_growth_buy * 0.9, 2)
+                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Overvalued - Exit or reduce"
                 
                 sell_zone_low = round(fair_value * 1.2, 2)
                 sell_zone_high = round(fair_value * 1.3, 2)
+                
+                # Determine if current price is within buy zone
+                in_buy_zone = "✅ Yes" if buy_zone_low <= current_price <= buy_zone_high else "❌ No"
                 
                 # Allocation based on priority
                 if "⭐⭐⭐⭐⭐" in priority:
@@ -1590,7 +1674,14 @@ def main_app():
                     "ANANTRAJ": "Realty Growth - Infrastructure",
                     "JIOFIN": "Future Fintech - Long-term",
                     "GANESHHOU": "Cyclical - Real estate",
-                    "NATCOPHARM": "Pharma Play - Generic exports"
+                    "NATCOPHARM": "Pharma Play - Generic exports",
+                    "MON100": "US ETF - Nasdaq tracker",
+                    "GOLDBEES": "Gold ETF - Safe haven",
+                    "SILVERBEES": "Silver ETF - Industrial demand",
+                    "LIQUIDBEES": "Liquid ETF - Cash equivalent",
+                    "SMALL250": "Small cap ETF - High risk",
+                    "MCX": "Commodity exchange - Cyclical",
+                    "TRUALT": "Value pick - Undervalued"
                 }
                 
                 if stock in verdict_map:
@@ -1598,9 +1689,11 @@ def main_app():
                 
                 action_data.append({
                     'Stock': stock,
+                    'Current Price': f"₹{current_price:.2f}",
                     'Action': action,
                     'Priority': priority,
                     'Buy Zone (₹)': buy_zone,
+                    'In Buy Zone': in_buy_zone,
                     'Sell Zone (₹)': f"₹{sell_zone_low} – ₹{sell_zone_high}",
                     'Allocation': allocation,
                     'Verdict': verdict
@@ -1620,6 +1713,9 @@ def main_app():
                               ('background-color: #f8d7da' if x == 'SELL' else
                                ('background-color: #cce5ff' if x == 'HOLD' else ''))),
                     subset=['Action']
+                ).applymap(
+                    lambda x: 'background-color: #d4edda' if x == '✅ Yes' else ('background-color: #f8d7da' if x == '❌ No' else ''),
+                    subset=['In Buy Zone']
                 ),
                 use_container_width=True,
                 hide_index=True
@@ -1628,7 +1724,7 @@ def main_app():
             # Summary statistics
             st.markdown("---")
             st.subheader("📊 Portfolio Summary")
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             
             with col1:
                 buy_count = len(result_df[result_df['Action'].str.contains('BUY')])
@@ -1642,6 +1738,9 @@ def main_app():
             with col4:
                 reduce_count = len(result_df[result_df['Action'] == 'REDUCE'])
                 st.metric("REDUCE Signals", reduce_count)
+            with col5:
+                in_zone = len(result_df[result_df['In Buy Zone'] == '✅ Yes'])
+                st.metric("In Buy Zone", in_zone)
             
             # Recommended allocation pie chart
             st.markdown("---")
@@ -1657,9 +1756,19 @@ def main_app():
             st.subheader("🏆 Top 5 BUY Recommendations")
             top_buys = result_df[result_df['Action'].str.contains('BUY')].head(5)
             if not top_buys.empty:
-                st.dataframe(top_buys[['Stock', 'Action', 'Priority', 'Buy Zone (₹)', 'Verdict']], use_container_width=True, hide_index=True)
+                st.dataframe(top_buys[['Stock', 'Current Price', 'Action', 'Priority', 'Buy Zone (₹)', 'In Buy Zone', 'Verdict']], use_container_width=True, hide_index=True)
             else:
                 st.info("No BUY recommendations at this time.")
+            
+            # Warning for stocks trading above buy zone
+            st.markdown("---")
+            st.subheader("⚠️ Stocks to Watch (Above Buy Zone)")
+            above_zone = result_df[(result_df['In Buy Zone'] == '❌ No') & (result_df['Action'].str.contains('BUY'))]
+            if not above_zone.empty:
+                st.dataframe(above_zone[['Stock', 'Current Price', 'Action', 'Buy Zone (₹)', 'Verdict']], use_container_width=True, hide_index=True)
+                st.info("💡 These stocks are currently above the recommended buy zone. Consider waiting for price to dip into the buy zone.")
+            else:
+                st.success("✅ All BUY recommendations are currently in the buy zone!")
             
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
@@ -1738,6 +1847,60 @@ def main_app():
         
         st.markdown("## 📊 Your Holdings")
         st.dataframe(st.session_state.portfolio_df, use_container_width=True)
+        
+        # ------------------------------
+        # ALERT CHECK (after holdings are processed)
+        # ------------------------------
+        st.markdown("---")
+        st.subheader("🔔 Live Alerts")
+        st.caption("The system automatically checks if any stock has dropped into your buy zone or reached your target price.")
+        
+        if st.button("🔍 Check Alerts Now"):
+            alerts_triggered = []
+            for _, row in st.session_state.portfolio_df.iterrows():
+                stock = row['Stock']
+                current_price = row['Current Price']
+                
+                ticker = ALL_STOCKS.get(stock)
+                fund = get_fundamental_data(ticker)
+                eps_growth_buy = None
+                if fund:
+                    eps = fund.get('info', {}).get('trailingEps', np.nan)
+                    if pd.isna(eps):
+                        net_profit = fund.get('net_profit', np.nan) * 1e7
+                        shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
+                        if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
+                            eps = net_profit / shares
+                    growth = fund.get('profit_growth_3y', np.nan)
+                    if pd.isna(growth) or growth <= 0:
+                        growth = fund.get('profit_growth_5y', np.nan)
+                    if pd.isna(growth) or growth <= 0:
+                        growth = 10
+                    growth = min(growth, 50)
+                    if not pd.isna(eps) and eps > 0:
+                        fair_value = eps * growth * 1.5
+                        eps_growth_buy = round(fair_value * 0.8, 2)
+                
+                target_list = []
+                if eps_growth_buy:
+                    target_list.append(eps_growth_buy)
+                if stock in st.session_state.target_prices:
+                    user_targets = st.session_state.target_prices[stock]
+                    if isinstance(user_targets, list):
+                        target_list.extend(user_targets)
+                    else:
+                        target_list.append(user_targets)
+                
+                if target_list:
+                    alerts_sent = st.session_state.alert_system.check_and_send_alerts(stock, current_price, target_list)
+                    if alerts_sent:
+                        alerts_triggered.append(f"{stock}: {', '.join(alerts_sent)}")
+            
+            if alerts_triggered:
+                st.success(f"✅ Alerts sent: {', '.join(alerts_triggered)}")
+            else:
+                st.info("No alerts triggered at this time. Check your target prices and current prices.")
+        
     else:
         st.info("No holdings data. Please add stocks using the section below.")
     
