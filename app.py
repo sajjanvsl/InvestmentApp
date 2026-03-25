@@ -1248,64 +1248,71 @@ def main_app():
     # Alert Settings (with test button)
     # ------------------------------
     with st.expander("📧 Alert Settings (Email / Telegram)"):
-        st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("📧 Email Settings")
-            email_enabled = st.checkbox("Enable Email Alerts", value=st.session_state.settings.get("email_enabled", False), key="email_enabled_input")
-            email_sender = st.text_input("Sender Email (Gmail)", value=st.session_state.settings.get("email_sender", ""), key="email_sender_input", placeholder="your@gmail.com")
-            email_password = st.text_input("App Password", value=st.session_state.settings.get("email_password", ""), type="password", key="email_password_input",
-                         help="Use Gmail App Password (not your regular password)")
-            email_recipient = st.text_input("Recipient Email", value=st.session_state.settings.get("email_recipient", "sajjanvsl@gmail.com"), key="email_recipient_input")
+    st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📧 Email Settings")
+        email_enabled = st.checkbox("Enable Email Alerts", value=st.session_state.settings.get("email_enabled", False), key="email_enabled_input")
+        email_sender = st.text_input("Sender Email (Gmail)", value=st.session_state.settings.get("email_sender", ""), key="email_sender_input", placeholder="your@gmail.com")
+        email_password = st.text_input("App Password", value=st.session_state.settings.get("email_password", ""), type="password", key="email_password_input",
+                     help="Use Gmail App Password (not your regular password)")
+        email_recipient = st.text_input("Recipient Email", value=st.session_state.settings.get("email_recipient", "sajjanvsl@gmail.com"), key="email_recipient_input")
+    
+    with col2:
+        st.subheader("📱 Telegram Settings")
+        telegram_enabled = st.checkbox("Enable Telegram Alerts", value=st.session_state.settings.get("telegram_enabled", False), key="telegram_enabled_input")
+        telegram_bot_token = st.text_input("Bot Token", value=st.session_state.settings.get("telegram_bot_token", ""), key="telegram_bot_token_input",
+                     help="Get from @BotFather on Telegram")
+        telegram_chat_id = st.text_input("Chat ID", value=st.session_state.settings.get("telegram_chat_id", ""), key="telegram_chat_id_input",
+                     help="Your numeric chat ID (e.g., 123456789). Get it from @userinfobot.")
         
-        with col2:
-            st.subheader("📱 Telegram Settings")
-            telegram_enabled = st.checkbox("Enable Telegram Alerts", value=st.session_state.settings.get("telegram_enabled", False), key="telegram_enabled_input")
-            telegram_bot_token = st.text_input("Bot Token", value=st.session_state.settings.get("telegram_bot_token", ""), key="telegram_bot_token_input",
-                         help="Get from @BotFather on Telegram")
-            telegram_chat_id = st.text_input("Chat ID", value=st.session_state.settings.get("telegram_chat_id", "@sajjanvsl"), key="telegram_chat_id_input",
-                         help="Your Telegram username or chat ID")
-        
-        # Save settings button
-        if st.button("💾 Save Alert Settings"):
-            st.session_state.settings = {
-                "email_enabled": email_enabled,
-                "email_sender": email_sender,
-                "email_password": email_password,
-                "email_recipient": email_recipient,
-                "telegram_enabled": telegram_enabled,
-                "telegram_bot_token": telegram_bot_token,
-                "telegram_chat_id": telegram_chat_id
-            }
-            save_settings(st.session_state.settings)
-            # Update the session state variables used by the alert system
-            st.session_state.email_enabled = email_enabled
-            st.session_state.email_sender = email_sender
-            st.session_state.email_password = email_password
-            st.session_state.email_recipient = email_recipient
-            st.session_state.telegram_enabled = telegram_enabled
-            st.session_state.telegram_bot_token = telegram_bot_token
-            st.session_state.telegram_chat_id = telegram_chat_id
-            st.success("✅ Settings saved successfully!")
-        
-        # Test alert button
-        if st.button("🔔 Send Test Alert"):
-            if st.session_state.get('email_enabled', False):
-                result = st.session_state.alert_system.send_email_alert("TEST", 100, 90)
-                if result:
-                    st.success("Test email sent!")
-                else:
-                    st.error("Test email failed. Check email settings.")
-            if st.session_state.get('telegram_enabled', False):
+        # Warn if using a username (@...) instead of numeric ID
+        if telegram_chat_id.startswith('@'):
+            st.warning("⚠️ You entered a username. For direct messages, you need the numeric chat ID. Please get it from @userinfobot.")
+    
+    # Save settings button
+    if st.button("💾 Save Alert Settings"):
+        st.session_state.settings = {
+            "email_enabled": email_enabled,
+            "email_sender": email_sender,
+            "email_password": email_password,
+            "email_recipient": email_recipient,
+            "telegram_enabled": telegram_enabled,
+            "telegram_bot_token": telegram_bot_token,
+            "telegram_chat_id": telegram_chat_id
+        }
+        save_settings(st.session_state.settings)
+        # Update the session state variables used by the alert system
+        st.session_state.email_enabled = email_enabled
+        st.session_state.email_sender = email_sender
+        st.session_state.email_password = email_password
+        st.session_state.email_recipient = email_recipient
+        st.session_state.telegram_enabled = telegram_enabled
+        st.session_state.telegram_bot_token = telegram_bot_token
+        st.session_state.telegram_chat_id = telegram_chat_id
+        st.success("✅ Settings saved successfully!")
+    
+    # Test alert button
+    if st.button("🔔 Send Test Alert"):
+        if st.session_state.get('email_enabled', False):
+            result = st.session_state.alert_system.send_email_alert("TEST", 100, 90)
+            if result:
+                st.success("Test email sent!")
+            else:
+                st.error("Test email failed. Check email settings.")
+        if st.session_state.get('telegram_enabled', False):
+            # Check if the chat ID looks like a username
+            if st.session_state.telegram_chat_id.startswith('@'):
+                st.error("❌ Telegram test failed: You used a username (@...). Please use the numeric chat ID from @userinfobot.")
+            else:
                 result = st.session_state.alert_system.send_telegram_alert("TEST", 100, 90)
                 if result:
                     st.success("Test Telegram message sent!")
                 else:
-                    st.error("Test Telegram failed. Check bot token and chat ID.")
-        
-        st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather and get your chat ID from @userinfobot.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
+                    st.error("Test Telegram failed. Check bot token and numeric chat ID.")
+    
+    st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot.")
+    st.markdown('</div>', unsafe_allow_html=True)
     # ------------------------------
     # Refresh button, debug expander, and tabs (unchanged)
     # ------------------------------
