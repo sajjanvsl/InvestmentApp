@@ -1247,9 +1247,12 @@ def main_app():
     # ------------------------------
     # Alert Settings (with test button)
     # ------------------------------
-    with st.expander("📧 Alert Settings (Email / Telegram)"):
-        st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
+   # ------------------------------
+# Alert Settings (updated with better Telegram guidance)
+# ------------------------------
+with st.expander("📧 Alert Settings (Email / Telegram)"):
+    st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
     with col1:
         st.subheader("📧 Email Settings")
         email_enabled = st.checkbox("Enable Email Alerts", value=st.session_state.settings.get("email_enabled", False), key="email_enabled_input")
@@ -1269,6 +1272,9 @@ def main_app():
         # Warn if using a username (@...) instead of numeric ID
         if telegram_chat_id.startswith('@'):
             st.warning("⚠️ You entered a username. For direct messages, you need the numeric chat ID. Please get it from @userinfobot.")
+        else:
+            # Provide instructions for starting a conversation with the bot
+            st.info("💡 After saving, you need to start a conversation with your bot: Send `/start` to `@YourBotUsername` (replace with your bot's username) in Telegram. Then the bot can send you alerts.")
     
     # Save settings button
     if st.button("💾 Save Alert Settings"):
@@ -1309,9 +1315,13 @@ def main_app():
                 if result:
                     st.success("Test Telegram message sent!")
                 else:
-                    st.error("Test Telegram failed. Check bot token and numeric chat ID.")
+                    # Provide more specific guidance based on error
+                    st.error("Test Telegram failed. Please ensure:")
+                    st.markdown("1. You have started a conversation with your bot by sending `/start` to `@YourBotUsername` in Telegram.")
+                    st.markdown("2. Your numeric chat ID is correct (get it from @userinfobot).")
+                    st.markdown("3. The bot token is correct.")
     
-    st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot.")
+    st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot. You must also send a message to your bot first (e.g., `/start`) to allow it to message you.")
     st.markdown('</div>', unsafe_allow_html=True)
     # ------------------------------
     # Refresh button, debug expander, and tabs (unchanged)
