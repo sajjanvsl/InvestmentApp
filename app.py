@@ -28,7 +28,7 @@ except ImportError:
 st.set_page_config(page_title="Quant Fund Manager", layout="wide")
 
 # ------------------------------
-# ENHANCED CSS (unchanged, professional)
+# ENHANCED CSS (professional, dark red header, white background)
 # ------------------------------
 st.markdown("""
 <style>
@@ -383,7 +383,7 @@ def load_settings():
         "email_recipient": "sajjanvsl@gmail.com",
         "telegram_enabled": False,
         "telegram_bot_token": "",
-        "telegram_chat_id": "@sajjanvsl"
+        "telegram_chat_id": ""
     }
 
 def save_settings(settings):
@@ -431,7 +431,7 @@ def reset_password(username, new_password):
         return True
     return False
 
-# Initialize session state for authentication (safe defaults)
+# Initialize session state for authentication
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'username' not in st.session_state:
@@ -1068,7 +1068,7 @@ def intraday_picks():
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
-# SCREEN STOCK FUNCTION
+# SCREEN STOCK FUNCTION (for holdings recommendations)
 # ------------------------------
 def screen_stock(fund):
     if fund is None:
@@ -1183,9 +1183,7 @@ def no_stocks_message(screener_name, criteria_description):
 # MAIN APP
 # ------------------------------
 def main_app():
-    # ------------------------------
-    # SESSION STATE INITIALIZATION (must be first)
-    # ------------------------------
+    # Session state initialization
     if 'holdings_df' not in st.session_state:
         st.session_state.holdings_df = load_holdings()
     if 'portfolio_df' not in st.session_state:
@@ -1214,41 +1212,33 @@ def main_app():
         st.session_state.last_refresh = datetime.now()
     if 'target_prices' not in st.session_state:
         st.session_state.target_prices = load_target_prices()
-
-    # Load settings – this must be before any code that uses it
     if 'settings' not in st.session_state:
         st.session_state.settings = load_settings()
-
-    # Initialize alert system
     if 'alert_system' not in st.session_state:
         st.session_state.alert_system = AlertSystem()
 
-    # Sync alert settings from stored settings into session state
+    # Sync alert settings from stored settings
     st.session_state.email_enabled = st.session_state.settings.get('email_enabled', False)
     st.session_state.email_sender = st.session_state.settings.get('email_sender', '')
     st.session_state.email_password = st.session_state.settings.get('email_password', '')
     st.session_state.email_recipient = st.session_state.settings.get('email_recipient', 'sajjanvsl@gmail.com')
     st.session_state.telegram_enabled = st.session_state.settings.get('telegram_enabled', False)
     st.session_state.telegram_bot_token = st.session_state.settings.get('telegram_bot_token', '')
-    st.session_state.telegram_chat_id = st.session_state.settings.get('telegram_chat_id', '@sajjanvsl')
+    st.session_state.telegram_chat_id = st.session_state.settings.get('telegram_chat_id', '')
 
-    # ------------------------------
-    # HEADER
-    # ------------------------------
+    # Header
     col1, col2 = st.columns([6, 1])
     with col1:
         st.markdown('<div class="main-header"><span class="logo">📈 Quant Fund Manager</span><span style="color:#666;">Super Screener Edition</span></div>', unsafe_allow_html=True)
     with col2:
-        if st.button("Logout"):
+        if st.button("Logout", key="logout_button"):
             st.session_state.authenticated = False
             st.session_state.username = None
             st.rerun()
 
     st.markdown("#### Combined screener: Original 9‑factor + Magic Formula (19 criteria total)")
 
-    # ------------------------------
-    # ALERT SETTINGS (now safe to use st.session_state.settings)
-    # ------------------------------
+    # Alert Settings
     with st.expander("📧 Alert Settings (Email / Telegram)"):
         st.markdown('<div class="alert-settings">', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
@@ -1273,7 +1263,7 @@ def main_app():
             else:
                 st.info("💡 After saving, you need to start a conversation with your bot: Send `/start` to `@YourBotUsername` (replace with your bot's username) in Telegram. Then the bot can send you alerts.")
         
-        if st.button("💾 Save Alert Settings"):
+        if st.button("💾 Save Alert Settings", key="save_alert_settings_button"):
             st.session_state.settings = {
                 "email_enabled": email_enabled,
                 "email_sender": email_sender,
@@ -1284,6 +1274,7 @@ def main_app():
                 "telegram_chat_id": telegram_chat_id
             }
             save_settings(st.session_state.settings)
+            # Update session state
             st.session_state.email_enabled = email_enabled
             st.session_state.email_sender = email_sender
             st.session_state.email_password = email_password
@@ -1293,7 +1284,7 @@ def main_app():
             st.session_state.telegram_chat_id = telegram_chat_id
             st.success("✅ Settings saved successfully!")
         
-        if st.button("🔔 Send Test Alert"):
+        if st.button("🔔 Send Test Alert", key="test_alert_button"):
             if st.session_state.get('email_enabled', False):
                 result = st.session_state.alert_system.send_email_alert("TEST", 100, 90)
                 if result:
@@ -1316,166 +1307,8 @@ def main_app():
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot. You must also send a message to your bot first (e.g., `/start`) to allow it to message you.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ------------------------------
-    # REFRESH BUTTON, DEBUG EXPANDER, TABS (unchanged)
-    # ------------------------------
-    if st.button("🔄 Refresh Data"):
-        st.cache_data.clear()
-        st.session_state.last_refresh = datetime.now()
-        st.rerun()
-
-    with st.expander("🔧 Debug Data Fetching"):
-        st.write("Testing data fetch for CIPLA.NS:")
-        debug_result = debug_data_fetch("CIPLA.NS")
-        st.write(debug_result)
-        if "❌" in debug_result:
-            st.error("Data fetch failed. Please check your internet connection or try again later.")
-        else:
-            st.success("Data fetch successful. If screeners show no stocks, criteria may be too strict.")
-        st.write("---")
-        st.write("If data fetch fails, try running this command in your terminal:")
-        st.code("pip install --upgrade yfinance")
-
-    # ========== TABS ==========
-    screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5, custom_fv_tab, final_action_tab = st.tabs([
-        "🤖 AI Swing Scanner", 
-        "💰 Fair Value Analysis (DCF)",
-        "📈 Fundamental Breakout",
-        "⚡ Intraday Breakout & Breakdown (5-min)",
-        "🤖 AI Intraday Picks",
-        "📊 Custom Fair Value (EPS × Growth)",
-        "📊 Final Portfolio Action Table"
-    ])
-
-    # ----- Tab 1: AI Swing Scanner -----
-    with screener_tab1:
-        # ... (unchanged)
-        pass
-
-    # ----- Tab 2: Fair Value Analysis (DCF) -----
-    with screener_tab2:
-        # ... (unchanged)
-        pass
-
-    # ----- Tab 3: Fundamental Breakout -----
-    with screener_tab3:
-        # ... (unchanged)
-        pass
-
-    # ----- Tab 4: Intraday Breakout & Breakdown -----
-    with screener_tab4:
-        # ... (unchanged)
-        pass
-
-    # ----- Tab 5: AI Intraday Picks -----
-    with screener_tab5:
-        # ... (unchanged)
-        pass
-
-    # ----- Tab 6: Custom Fair Value (EPS × Growth) -----
-    with custom_fv_tab:
-        # ... (unchanged)
-        pass
-
-    # ----- Tab 7: Final Portfolio Action Table -----
-    with final_action_tab:
-        # ... (unchanged)
-        pass
-
-    st.markdown("---")
-
-    # ------------------------------
-    # HOLDINGS SECTION (simplified)
-    # ------------------------------
-    if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
-        if st.session_state.portfolio_df is None:
-            # ... (unchanged)
-            pass
-        
-        st.markdown("## 📊 Your Holdings")
-        st.dataframe(st.session_state.portfolio_df, use_container_width=True)
-        
-        st.markdown("---")
-        st.subheader("🔔 Live Alerts")
-        st.caption("The system automatically checks if any stock has dropped into your buy zone or reached your target price.")
-        
-        if st.button("🔍 Check Alerts Now"):
-            alerts_triggered = []
-            for _, row in st.session_state.portfolio_df.iterrows():
-                stock = row['Stock']
-                current_price = row['Current Price']
-                
-                ticker = ALL_STOCKS.get(stock)
-                fund = get_fundamental_data(ticker)
-                eps_growth_buy = None
-                if fund:
-                    eps = fund.get('info', {}).get('trailingEps', np.nan)
-                    if pd.isna(eps):
-                        net_profit = fund.get('net_profit', np.nan) * 1e7
-                        shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
-                        if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
-                            eps = net_profit / shares
-                    growth = fund.get('profit_growth_3y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = fund.get('profit_growth_5y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = 10
-                    growth = min(growth, 50)
-                    if not pd.isna(eps) and eps > 0:
-                        fair_value = eps * growth * 1.5
-                        eps_growth_buy = round(fair_value * 0.8, 2)
-                
-                target_list = []
-                if eps_growth_buy:
-                    target_list.append(eps_growth_buy)
-                if stock in st.session_state.target_prices:
-                    user_targets = st.session_state.target_prices[stock]
-                    if isinstance(user_targets, list):
-                        target_list.extend(user_targets)
-                    else:
-                        target_list.append(user_targets)
-                
-                if target_list:
-                    alerts_sent = st.session_state.alert_system.check_and_send_alerts(stock, current_price, target_list)
-                    if alerts_sent:
-                        alerts_triggered.append(f"{stock}: {', '.join(alerts_sent)}")
-            
-            if alerts_triggered:
-                st.success(f"✅ Alerts sent: {', '.join(alerts_triggered)}")
-            else:
-                st.info("No alerts triggered at this time. Check your target prices and current prices.")
-        
-    else:
-        st.info("No holdings data. Please add stocks using the section below.")
-    
-    # ------------------------------
-    # INPUT SECTION
-    # ------------------------------
-    st.markdown('<div class="input-section">', unsafe_allow_html=True)
-    st.subheader("📁 Add Holdings")
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
-    with col2:
-        single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA or MCX").strip().upper()
-    
-    if uploaded_file is not None:
-        # ... (unchanged)
-        pass
-    
-    if single_stock:
-        # ... (unchanged)
-        pass
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown("---")
-    st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))    # ------------------------------
-    # Refresh button, debug expander, and tabs (unchanged)
-    # ------------------------------
-    # ... (rest of the code remains exactly as before)
-
     # Refresh button
-    if st.button("🔄 Refresh Data"):
+    if st.button("🔄 Refresh Data", key="refresh_data_button"):
         st.cache_data.clear()
         st.session_state.last_refresh = datetime.now()
         st.rerun()
@@ -1493,7 +1326,7 @@ def main_app():
         st.write("If data fetch fails, try running this command in your terminal:")
         st.code("pip install --upgrade yfinance")
 
-    # ========== DEFINE ALL 7 TABS ==========
+    # ========== TABS ==========
     screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5, custom_fv_tab, final_action_tab = st.tabs([
         "🤖 AI Swing Scanner", 
         "💰 Fair Value Analysis (DCF)",
@@ -1535,13 +1368,12 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Fair Value Analysis (DCF) - simplified version -----
+    # ----- Tab 2: Fair Value Analysis (DCF) -----
     with screener_tab2:
         st.markdown("## 💰 Fair Value Analysis (DCF)")
         st.caption("Intrinsic value based on Discounted Cash Flow model. Buy when price is below fair value.")
         st.info("This tab uses the DCF model. For the EPS×Growth formula, see the Custom Fair Value tab.")
         
-        # Show DCF calculations for portfolio stocks if available
         if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
             dcf_data = []
             for _, row in st.session_state.portfolio_df.iterrows():
@@ -1692,20 +1524,18 @@ def main_app():
         st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
         st.caption("**Current Price** vs **Buy Zone** – Buy when price falls into the Buy Zone. **Sell Zone** is for profit booking.")
         
-        # Option to use sample data if no holdings
         use_sample = False
         if st.session_state.portfolio_df is None or st.session_state.portfolio_df.empty:
             st.info("No holdings data found. You can either:")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("📁 Upload CSV from section below"):
+                if st.button("📁 Upload CSV from section below", key="upload_csv_info_button"):
                     st.info("Please use the 'Add Holdings' section at the bottom of the page.")
             with col2:
-                if st.button("📊 Use Sample Portfolio Data"):
+                if st.button("📊 Use Sample Portfolio Data", key="use_sample_data_button"):
                     use_sample = True
                     st.success("Using sample portfolio data for demonstration.")
         
-        # Sample portfolio data with realistic current prices
         sample_portfolio = [
             {"Stock": "HDFCBANK", "Current Price": 1680.50},
             {"Stock": "VBL", "Current Price": 445.75},
@@ -1739,7 +1569,6 @@ def main_app():
             {"Stock": "AWHCL", "Current Price": 494.50}
         ]
         
-        # Use sample data if selected or if no holdings
         if use_sample or (st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty):
             if use_sample:
                 action_df = pd.DataFrame(sample_portfolio)
@@ -1781,7 +1610,6 @@ def main_app():
                     fair_value = current_price * 1.2
                     eps_growth_buy = round(current_price * 0.85, 2)
                 
-                # Determine action based on current price vs fair value
                 if current_price <= eps_growth_buy * 1.05:
                     action = "BUY"
                     priority = "⭐⭐⭐⭐⭐"
@@ -1828,10 +1656,8 @@ def main_app():
                 sell_zone_low = round(fair_value * 1.2, 2)
                 sell_zone_high = round(fair_value * 1.3, 2)
                 
-                # Determine if current price is within buy zone
                 in_buy_zone = "✅ Yes" if buy_zone_low <= current_price <= buy_zone_high else "❌ No"
                 
-                # Allocation based on priority
                 if "⭐⭐⭐⭐⭐" in priority:
                     allocation = "15–20%"
                 elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
@@ -1845,7 +1671,6 @@ def main_app():
                 else:
                     allocation = "0–2%"
                 
-                # Custom verdicts for specific stocks
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1891,13 +1716,11 @@ def main_app():
                     'Verdict': verdict
                 })
             
-            # Create DataFrame and sort
             result_df = pd.DataFrame(action_data)
             priority_order = {'⭐⭐⭐⭐⭐': 1, '⭐⭐⭐⭐': 2, '⭐⭐⭐': 3, '⭐⭐': 4, '⭐': 5}
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
             
-            # Display the table with color coding
             st.dataframe(
                 result_df.style.applymap(
                     lambda x: 'background-color: #d4edda' if x == 'BUY' else 
@@ -1913,7 +1736,6 @@ def main_app():
                 hide_index=True
             )
             
-            # Summary statistics
             st.markdown("---")
             st.subheader("📊 Portfolio Summary")
             col1, col2, col3, col4, col5 = st.columns(5)
@@ -1934,7 +1756,6 @@ def main_app():
                 in_zone = len(result_df[result_df['In Buy Zone'] == '✅ Yes'])
                 st.metric("In Buy Zone", in_zone)
             
-            # Recommended allocation pie chart
             st.markdown("---")
             st.subheader("🎯 Recommended Allocation by Priority")
             allocation_summary = result_df.groupby('Priority')['Allocation'].first().reset_index()
@@ -1943,7 +1764,6 @@ def main_app():
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Top picks
             st.markdown("---")
             st.subheader("🏆 Top 5 BUY Recommendations")
             top_buys = result_df[result_df['Action'].str.contains('BUY')].head(5)
@@ -1952,7 +1772,6 @@ def main_app():
             else:
                 st.info("No BUY recommendations at this time.")
             
-            # Warning for stocks trading above buy zone
             st.markdown("---")
             st.subheader("⚠️ Stocks to Watch (Above Buy Zone)")
             above_zone = result_df[(result_df['In Buy Zone'] == '❌ No') & (result_df['Action'].str.contains('BUY'))]
@@ -1968,7 +1787,7 @@ def main_app():
     st.markdown("---")
 
     # ------------------------------
-    # HOLDINGS SECTION (simplified)
+    # HOLDINGS SECTION
     # ------------------------------
     if st.session_state.holdings_df is not None and not st.session_state.holdings_df.empty:
         if st.session_state.portfolio_df is None:
@@ -2040,14 +1859,11 @@ def main_app():
         st.markdown("## 📊 Your Holdings")
         st.dataframe(st.session_state.portfolio_df, use_container_width=True)
         
-        # ------------------------------
-        # ALERT CHECK (after holdings are processed)
-        # ------------------------------
         st.markdown("---")
         st.subheader("🔔 Live Alerts")
         st.caption("The system automatically checks if any stock has dropped into your buy zone or reached your target price.")
         
-        if st.button("🔍 Check Alerts Now"):
+        if st.button("🔍 Check Alerts Now", key="check_alerts_button"):
             alerts_triggered = []
             for _, row in st.session_state.portfolio_df.iterrows():
                 stock = row['Stock']
@@ -2169,7 +1985,7 @@ def main_app():
     st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))
 
 # ------------------------------
-# ROUTING (defensive)
+# ROUTING
 # ------------------------------
 if not st.session_state.get('authenticated', False):
     show_login()
