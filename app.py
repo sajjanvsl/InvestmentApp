@@ -246,7 +246,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# ALERT SYSTEM (with improved error handling)
+# ALERT SYSTEM
 # ------------------------------
 class AlertSystem:
     def __init__(self):
@@ -391,7 +391,7 @@ def save_settings(settings):
         json.dump(settings, f, indent=2)
 
 # ------------------------------
-# AUTHENTICATION FUNCTIONS (unchanged)
+# AUTHENTICATION FUNCTIONS
 # ------------------------------
 USERS_FILE = "users.json"
 
@@ -430,6 +430,12 @@ def reset_password(username, new_password):
         save_users(users)
         return True
     return False
+
+# Initialize session state for authentication (safe defaults)
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
 
 # ------------------------------
 # MASTER STOCK LIST (all NSE stocks)
@@ -472,7 +478,7 @@ ALL_STOCKS = {
 }
 
 # ------------------------------
-# DATA FETCHING FUNCTIONS (unchanged)
+# DATA FETCHING FUNCTIONS
 # ------------------------------
 def debug_data_fetch(ticker):
     try:
@@ -530,7 +536,7 @@ def get_intraday_data(ticker):
     return pd.DataFrame()
 
 # ------------------------------
-# DATA PERSISTENCE (unchanged)
+# DATA PERSISTENCE
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
@@ -590,7 +596,7 @@ def save_target_prices(target_dict):
         json.dump(target_dict, f, indent=2)
 
 # ------------------------------
-# FUNDAMENTAL FETCHING (unchanged)
+# FUNDAMENTAL FETCHING
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -702,7 +708,7 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# DCF FAIR VALUE CALCULATION (unchanged)
+# DCF FAIR VALUE CALCULATION
 # ------------------------------
 def calculate_fair_value(fund):
     try:
@@ -749,7 +755,7 @@ def calculate_fair_value(fund):
         return None
 
 # ------------------------------
-# SCREENER FUNCTIONS (unchanged)
+# SCREENER FUNCTIONS
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -1977,9 +1983,9 @@ def main_app():
     st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))
 
 # ------------------------------
-# ROUTING
+# ROUTING (defensive)
 # ------------------------------
-if not st.session_state.authenticated:
+if not st.session_state.get('authenticated', False):
     show_login()
 else:
     main_app()
