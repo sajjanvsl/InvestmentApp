@@ -246,24 +246,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# ALERT SYSTEM
+# ALERT SYSTEM (enhanced with custom keys)
 # ------------------------------
 class AlertSystem:
     def __init__(self):
         self.alert_cooldown = {}
         self.cooldown_minutes = 15
         
-    def should_send_alert(self, symbol):
+    def should_send_alert(self, key):
         current_time = time.time()
-        if symbol in self.alert_cooldown:
-            last_alert = self.alert_cooldown[symbol]
+        if key in self.alert_cooldown:
+            last_alert = self.alert_cooldown[key]
             minutes_passed = (current_time - last_alert) / 60
             if minutes_passed < self.cooldown_minutes:
                 return False
-        self.alert_cooldown[symbol] = current_time
+        self.alert_cooldown[key] = current_time
         return True
     
-    def send_email_alert(self, stock_name, current_price, target_price):
+    def send_email_alert(self, stock_name, current_price, target_price, signal_type="Alert", target_zone=""):
         if not st.session_state.get('email_enabled', False):
             return False
             
@@ -274,24 +274,24 @@ class AlertSystem:
         if not all([sender_email, sender_password, recipient_email]):
             return False
             
-        subject = f"🚨 BUY ALERT: {stock_name}"
+        subject = f"🚨 {signal_type} ALERT: {stock_name}"
         
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2 style="color: #8B0000;">📈 Buy Alert: {stock_name}</h2>
+            <h2 style="color: #8B0000;">📈 {signal_type} Alert: {stock_name}</h2>
             <table style="border-collapse: collapse; width: 100%; max-width: 400px;">
                 <tr style="background-color: #f2f2f2;">
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong> Non
-                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f} Non
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f}</td>
                 </tr>
                 <tr>
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Your Target Price:</strong> Non
-                    <td style="padding: 10px; border: 1px solid #ddd;">₹{target_price:.2f} Non
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Target Zone:</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">{target_zone}</td>
                 </tr>
                 <tr style="background-color: #f2f2f2;">
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong> Non
-                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} Non
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td>
                 </tr>
             </table>
             <p style="margin-top: 20px; color: #666;">
@@ -318,7 +318,7 @@ class AlertSystem:
             st.error(f"Email failed: {str(e)}")
             return False
     
-    def send_telegram_alert(self, stock_name, current_price, target_price):
+    def send_telegram_alert(self, stock_name, current_price, target_price, signal_type="Alert", target_zone=""):
         if not st.session_state.get('telegram_enabled', False):
             return False
             
@@ -328,10 +328,10 @@ class AlertSystem:
         if not all([bot_token, chat_id]):
             return False
             
-        message = f"""🚨 BUY ALERT: {stock_name}
-        
+        message = f"""🚨 {signal_type} ALERT: {stock_name}
+
 Current Price: ₹{current_price:.2f}
-Your Target: ₹{target_price:.2f}
+Target Zone: {target_zone}
 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 This is an automated alert from Quant Fund Manager."""
@@ -355,12 +355,13 @@ This is an automated alert from Quant Fund Manager."""
     def check_and_send_alerts(self, stock_name, current_price, target_prices):
         alerts_sent = []
         for target_price in target_prices:
-            if current_price <= target_price and self.should_send_alert(f"{stock_name}_{target_price}"):
+            key = f"price_target_{stock_name}_{target_price}"
+            if self.should_send_alert(key):
                 if st.session_state.get('email_enabled', False):
-                    if self.send_email_alert(stock_name, current_price, target_price):
+                    if self.send_email_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
                         alerts_sent.append(f"Email at ₹{target_price:.2f}")
                 if st.session_state.get('telegram_enabled', False):
-                    if self.send_telegram_alert(stock_name, current_price, target_price):
+                    if self.send_telegram_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
                         alerts_sent.append(f"Telegram at ₹{target_price:.2f}")
         return alerts_sent
 
@@ -708,7 +709,58 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# DCF FAIR VALUE CALCULATION
+# ROBUST FAIR VALUE CALCULATION
+# ------------------------------
+def get_reliable_eps_and_growth(ticker, current_price):
+    """
+    Returns (eps, growth) tuple with sanity checks.
+    """
+    fund = get_fundamental_data(ticker)
+    if not fund:
+        return None, None
+
+    eps = None
+    info = fund.get('info', {})
+    # Try trailing EPS
+    eps = info.get('trailingEps')
+    if eps is None or eps <= 0:
+        # Try via trailing PE
+        pe = info.get('trailingPE')
+        if pe and pe > 0 and current_price > 0:
+            eps = current_price / pe
+    if eps is None or eps <= 0:
+        # Compute from net profit / shares
+        net_profit = fund.get('net_profit')  # in crores
+        shares = info.get('sharesOutstanding')
+        if net_profit and shares and shares > 0:
+            eps = (net_profit * 1e7) / shares
+    # Sanity: EPS shouldn't be too high relative to price
+    if eps and current_price > 0:
+        if eps > current_price * 2:
+            eps = None  # discard unreasonable
+
+    # Get growth (capped at 30%)
+    growth = fund.get('profit_growth_3y')
+    if not growth or growth <= 0:
+        growth = fund.get('profit_growth_5y')
+    if not growth or growth <= 0:
+        growth = 10  # default
+    growth = min(growth, 30)
+
+    return eps, growth
+
+def get_reliable_fair_value(ticker, current_price):
+    eps, growth = get_reliable_eps_and_growth(ticker, current_price)
+    if eps and eps > 0 and growth > 0:
+        fair_value = eps * growth * 1.5
+        # Sanity check
+        if 0.5 * current_price <= fair_value <= 5 * current_price:
+            return fair_value
+    # Fallback: simple estimate
+    return current_price * 1.2  # rough 20% upside
+
+# ------------------------------
+# DCF FAIR VALUE CALCULATION (kept for backward compatibility)
 # ------------------------------
 def calculate_fair_value(fund):
     try:
@@ -1216,6 +1268,8 @@ def main_app():
         st.session_state.settings = load_settings()
     if 'alert_system' not in st.session_state:
         st.session_state.alert_system = AlertSystem()
+    if 'alerts_sent_this_session' not in st.session_state:
+        st.session_state.alerts_sent_this_session = set()
 
     # Sync alert settings from stored settings
     st.session_state.email_enabled = st.session_state.settings.get('email_enabled', False)
@@ -1286,7 +1340,7 @@ def main_app():
         
         if st.button("🔔 Send Test Alert", key="test_alert_button"):
             if st.session_state.get('email_enabled', False):
-                result = st.session_state.alert_system.send_email_alert("TEST", 100, 90)
+                result = st.session_state.alert_system.send_email_alert("TEST", 100, 90, "Test Alert", "₹90")
                 if result:
                     st.success("Test email sent!")
                 else:
@@ -1295,7 +1349,7 @@ def main_app():
                 if st.session_state.telegram_chat_id.startswith('@'):
                     st.error("❌ Telegram test failed: You used a username (@...). Please use the numeric chat ID from @userinfobot.")
                 else:
-                    result = st.session_state.alert_system.send_telegram_alert("TEST", 100, 90)
+                    result = st.session_state.alert_system.send_telegram_alert("TEST", 100, 90, "Test Alert", "₹90")
                     if result:
                         st.success("Test Telegram message sent!")
                     else:
@@ -1311,6 +1365,8 @@ def main_app():
     if st.button("🔄 Refresh Data", key="refresh_data_button"):
         st.cache_data.clear()
         st.session_state.last_refresh = datetime.now()
+        # Invalidate portfolio to force rebuild
+        st.session_state.portfolio_df = None
         st.rerun()
 
     # Debug expander
@@ -1473,36 +1529,33 @@ def main_app():
         
         rows = []
         for stock in stock_list:
-            fund = get_fundamental_data(stock["symbol"])
-            if fund is None:
+            # Get current price first
+            ticker = stock["symbol"]
+            price_df = get_price_data(ticker)
+            if price_df.empty:
+                continue
+            current_price = price_df['Close'].iloc[-1]
+            
+            # Use robust fair value
+            fair_value = get_reliable_fair_value(ticker, current_price)
+            if fair_value is None:
                 continue
             
-            eps = fund.get('info', {}).get('trailingEps', np.nan)
-            if pd.isna(eps):
-                net_profit = fund.get('net_profit', np.nan) * 1e7
-                shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
-                if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
-                    eps = net_profit / shares
-            
-            growth = fund.get('profit_growth_3y', np.nan)
-            if pd.isna(growth) or growth <= 0:
-                growth = fund.get('profit_growth_5y', np.nan)
-            if pd.isna(growth) or growth <= 0:
-                growth = 10
-            growth = min(growth, 50)
-            
-            if pd.isna(eps) or eps <= 0:
-                continue
-            
-            fair_value = eps * growth * 1.5
             buy_low = fair_value * 0.80
             buy_high = fair_value * 0.85
+            
+            # Also get EPS and growth for display
+            eps, growth = get_reliable_eps_and_growth(ticker, current_price)
+            if eps is None:
+                eps = np.nan
+            if growth is None:
+                growth = np.nan
             
             rows.append({
                 "Category": stock["category"],
                 "Stock": stock["name"],
-                "EPS (₹)": round(eps, 2),
-                "Growth (%)": round(growth, 1),
+                "EPS (₹)": round(eps, 2) if not pd.isna(eps) else "N/A",
+                "Growth (%)": round(growth, 1) if not pd.isna(growth) else "N/A",
                 "Fair Value (₹)": round(fair_value, 2),
                 "Buy Below (₹)": f"₹{round(buy_low, 2)} – ₹{round(buy_high, 2)}"
             })
@@ -1576,88 +1629,56 @@ def main_app():
                 action_df = st.session_state.portfolio_df[['Stock', 'Current Price']].copy()
             
             action_data = []
+            fair_values = {}
             
             for _, row in action_df.iterrows():
                 stock = row['Stock']
                 current_price = row['Current Price']
                 
                 ticker = ALL_STOCKS.get(stock)
-                fund = get_fundamental_data(ticker)
+                if not ticker:
+                    continue
                 
-                eps_growth_buy = None
-                fair_value = None
+                # Use robust fair value calculation
+                fair_value = get_reliable_fair_value(ticker, current_price)
+                fair_values[stock] = fair_value
                 
-                if fund:
-                    eps = fund.get('info', {}).get('trailingEps', np.nan)
-                    if pd.isna(eps):
-                        net_profit = fund.get('net_profit', np.nan) * 1e7
-                        shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
-                        if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
-                            eps = net_profit / shares
-                    
-                    growth = fund.get('profit_growth_3y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = fund.get('profit_growth_5y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = 10
-                    growth = min(growth, 50)
-                    
-                    if not pd.isna(eps) and eps > 0:
-                        fair_value = eps * growth * 1.5
-                        eps_growth_buy = round(fair_value * 0.8, 2)
+                buy_zone_low = fair_value * 0.8
+                buy_zone_high = fair_value * 0.85
+                sell_zone_low = fair_value * 1.2
+                sell_zone_high = fair_value * 1.3
                 
-                if fair_value is None or fair_value <= 0:
-                    fair_value = current_price * 1.2
-                    eps_growth_buy = round(current_price * 0.85, 2)
-                
-                if current_price <= eps_growth_buy * 1.05:
-                    action = "BUY"
-                    priority = "⭐⭐⭐⭐⭐"
-                    verdict = "Strong Buy - Significant undervaluation"
-                    buy_zone_low = eps_growth_buy
-                    buy_zone_high = round(eps_growth_buy * 1.05, 2)
-                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
-                elif current_price <= fair_value * 0.85:
-                    action = "BUY"
-                    priority = "⭐⭐⭐⭐"
-                    buy_zone_low = round(eps_growth_buy, 2)
-                    buy_zone_high = round(eps_growth_buy * 1.05, 2)
-                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
-                    verdict = "Undervalued - Accumulate"
+                # Determine action
+                if current_price <= buy_zone_high:
+                    if current_price <= buy_zone_low:
+                        action = "BUY"
+                        priority = "⭐⭐⭐⭐⭐"
+                        verdict = "Strong Buy - Significant undervaluation"
+                    else:
+                        action = "BUY"
+                        priority = "⭐⭐⭐⭐"
+                        verdict = "Undervalued - Accumulate"
                 elif current_price <= fair_value:
                     action = "BUY (DIP)"
                     priority = "⭐⭐⭐"
-                    buy_zone_low = round(eps_growth_buy * 0.95, 2)
-                    buy_zone_high = round(eps_growth_buy, 2)
-                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Fairly valued - Buy on dips"
                 elif current_price <= fair_value * 1.2:
                     action = "HOLD"
                     priority = "⭐⭐⭐"
-                    buy_zone_low = round(eps_growth_buy * 0.9, 2)
-                    buy_zone_high = round(eps_growth_buy, 2)
-                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Hold for growth"
                 elif current_price <= fair_value * 1.5:
                     action = "REDUCE"
                     priority = "⭐⭐"
-                    buy_zone_low = round(eps_growth_buy * 0.85, 2)
-                    buy_zone_high = round(eps_growth_buy, 2)
-                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Overvalued - Consider partial exit"
                 else:
                     action = "SELL"
                     priority = "⭐"
-                    buy_zone_low = round(eps_growth_buy * 0.8, 2)
-                    buy_zone_high = round(eps_growth_buy * 0.9, 2)
-                    buy_zone = f"₹{buy_zone_low} – ₹{buy_zone_high}"
                     verdict = "Overvalued - Exit or reduce"
                 
-                sell_zone_low = round(fair_value * 1.2, 2)
-                sell_zone_high = round(fair_value * 1.3, 2)
-                
+                # Check if in buy zone
                 in_buy_zone = "✅ Yes" if buy_zone_low <= current_price <= buy_zone_high else "❌ No"
                 
+                # Allocation suggestion
                 if "⭐⭐⭐⭐⭐" in priority:
                     allocation = "15–20%"
                 elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
@@ -1671,6 +1692,7 @@ def main_app():
                 else:
                     allocation = "0–2%"
                 
+                # Override verdict for known stocks (optional)
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1700,7 +1722,6 @@ def main_app():
                     "MCX": "Commodity exchange - Cyclical",
                     "TRUALT": "Value pick - Undervalued"
                 }
-                
                 if stock in verdict_map:
                     verdict = verdict_map[stock]
                 
@@ -1709,11 +1730,17 @@ def main_app():
                     'Current Price': f"₹{current_price:.2f}",
                     'Action': action,
                     'Priority': priority,
-                    'Buy Zone (₹)': buy_zone,
+                    'Buy Zone (₹)': f"₹{round(buy_zone_low, 2)} – ₹{round(buy_zone_high, 2)}",
                     'In Buy Zone': in_buy_zone,
-                    'Sell Zone (₹)': f"₹{sell_zone_low} – ₹{sell_zone_high}",
+                    'Sell Zone (₹)': f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}",
                     'Allocation': allocation,
-                    'Verdict': verdict
+                    'Verdict': verdict,
+                    # Hidden fields for alert logic
+                    'Buy Zone Low': buy_zone_low,
+                    'Buy Zone High': buy_zone_high,
+                    'Sell Zone Low': sell_zone_low,
+                    'Sell Zone High': sell_zone_high,
+                    'Fair Value': fair_value
                 })
             
             result_df = pd.DataFrame(action_data)
@@ -1780,6 +1807,71 @@ def main_app():
                 st.info("💡 These stocks are currently above the recommended buy zone. Consider waiting for price to dip into the buy zone.")
             else:
                 st.success("✅ All BUY recommendations are currently in the buy zone!")
+            
+            # ------------------------------
+            # AUTO-ALERTS FOR STRONG SIGNALS
+            # ------------------------------
+            def check_strong_signals_and_alert(portfolio_df):
+                """Send alerts for strong buy (⭐⭐⭐⭐⭐) and sell (SELL) signals."""
+                if not (st.session_state.get('telegram_enabled', False) or st.session_state.get('email_enabled', False)):
+                    return
+                
+                for _, row in portfolio_df.iterrows():
+                    stock = row['Stock']
+                    action = row['Action']
+                    priority = row['Priority']
+                    current_price_str = row['Current Price']
+                    # Extract numeric price
+                    current_price = float(current_price_str.replace('₹', '').replace(',', ''))
+                    buy_zone_low = row['Buy Zone Low']
+                    buy_zone_high = row['Buy Zone High']
+                    sell_zone_low = row['Sell Zone Low']
+                    sell_zone_high = row['Sell Zone High']
+                    
+                    # Strong Buy
+                    if action == 'BUY' and priority == '⭐⭐⭐⭐⭐':
+                        key = f"strong_buy_{stock}"
+                        if st.session_state.alert_system.should_send_alert(key):
+                            # Prevent duplicate alerts in same session (optional)
+                            if key in st.session_state.alerts_sent_this_session:
+                                continue
+                            st.session_state.alerts_sent_this_session.add(key)
+                            
+                            # Send alert
+                            target_zone = f"₹{round(buy_zone_low, 2)} – ₹{round(buy_zone_high, 2)}"
+                            if st.session_state.get('telegram_enabled', False):
+                                st.session_state.alert_system.send_telegram_alert(
+                                    stock, current_price, buy_zone_low,
+                                    signal_type="Strong Buy", target_zone=target_zone
+                                )
+                            if st.session_state.get('email_enabled', False):
+                                st.session_state.alert_system.send_email_alert(
+                                    stock, current_price, buy_zone_low,
+                                    signal_type="Strong Buy", target_zone=target_zone
+                                )
+                    
+                    # Strong Sell
+                    elif action == 'SELL':
+                        key = f"strong_sell_{stock}"
+                        if st.session_state.alert_system.should_send_alert(key):
+                            if key in st.session_state.alerts_sent_this_session:
+                                continue
+                            st.session_state.alerts_sent_this_session.add(key)
+                            
+                            target_zone = f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}"
+                            if st.session_state.get('telegram_enabled', False):
+                                st.session_state.alert_system.send_telegram_alert(
+                                    stock, current_price, sell_zone_low,
+                                    signal_type="Strong Sell", target_zone=target_zone
+                                )
+                            if st.session_state.get('email_enabled', False):
+                                st.session_state.alert_system.send_email_alert(
+                                    stock, current_price, sell_zone_low,
+                                    signal_type="Strong Sell", target_zone=target_zone
+                                )
+            
+            # Call the auto-alert function after the portfolio dataframe is built
+            check_strong_signals_and_alert(result_df)
             
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
@@ -1873,21 +1965,9 @@ def main_app():
                 fund = get_fundamental_data(ticker)
                 eps_growth_buy = None
                 if fund:
-                    eps = fund.get('info', {}).get('trailingEps', np.nan)
-                    if pd.isna(eps):
-                        net_profit = fund.get('net_profit', np.nan) * 1e7
-                        shares = fund.get('info', {}).get('sharesOutstanding', np.nan)
-                        if not pd.isna(net_profit) and not pd.isna(shares) and shares > 0:
-                            eps = net_profit / shares
-                    growth = fund.get('profit_growth_3y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = fund.get('profit_growth_5y', np.nan)
-                    if pd.isna(growth) or growth <= 0:
-                        growth = 10
-                    growth = min(growth, 50)
-                    if not pd.isna(eps) and eps > 0:
-                        fair_value = eps * growth * 1.5
-                        eps_growth_buy = round(fair_value * 0.8, 2)
+                    # Use robust fair value to get buy zone low
+                    fair_value = get_reliable_fair_value(ticker, current_price)
+                    eps_growth_buy = fair_value * 0.8 if fair_value else None
                 
                 target_list = []
                 if eps_growth_buy:
