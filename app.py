@@ -760,53 +760,6 @@ def get_reliable_fair_value(ticker, current_price):
     return current_price * 1.2  # rough 20% upside
 
 # ------------------------------
-# DCF FAIR VALUE CALCULATION (kept for backward compatibility)
-# ------------------------------
-def calculate_fair_value(fund):
-    try:
-        if fund is None:
-            return None
-        
-        fcf = fund.get('avg_fcf')
-        if pd.isna(fcf) or fcf <= 0:
-            return None
-        
-        growth_rate = fund.get('profit_growth_5y')
-        if pd.isna(growth_rate) or growth_rate <= 0:
-            growth_rate = 8
-        elif growth_rate > 30:
-            growth_rate = 30
-        
-        projection_years = 5
-        discount_rate = 12
-        terminal_growth = 4
-        
-        projected_fcf = []
-        for i in range(1, projection_years + 1):
-            projected_fcf.append(fcf * ((1 + growth_rate/100) ** i))
-        
-        pv_fcf = 0
-        for i, fcf_val in enumerate(projected_fcf):
-            pv_fcf += fcf_val / ((1 + discount_rate/100) ** (i+1))
-        
-        terminal_fcf = projected_fcf[-1] * (1 + terminal_growth/100)
-        terminal_value = terminal_fcf / ((discount_rate/100) - (terminal_growth/100))
-        pv_terminal = terminal_value / ((1 + discount_rate/100) ** projection_years)
-        
-        intrinsic_value_cr = pv_fcf + pv_terminal
-        
-        shares_outstanding = fund.get('info', {}).get('sharesOutstanding', 0)
-        if shares_outstanding > 0:
-            intrinsic_value_per_share = (intrinsic_value_cr * 1e7) / shares_outstanding
-            if intrinsic_value_per_share <= 0 or intrinsic_value_per_share > 100000:
-                return None
-            return intrinsic_value_per_share
-        else:
-            return None
-    except Exception:
-        return None
-
-# ------------------------------
 # SCREENER FUNCTIONS
 # ------------------------------
 def train_simple_model(df):
@@ -893,106 +846,6 @@ def ai_swing_signal(df, name):
     except Exception:
         return None
 
-def swing_breakout_signal(df, name):
-    if df.empty or len(df) < 50:
-        return None
-    try:
-        close = df['Close'].astype(float)
-        high = df['High'].astype(float)
-        volume = df['Volume'].astype(float)
-        ema50 = close.ewm(span=50, adjust=False).mean()
-        ema200 = close.ewm(span=200, adjust=False).mean()
-        rsi = RSIIndicator(close).rsi()
-        volume_sma20 = volume.rolling(20).mean()
-        highest_high_20 = high.rolling(20).max()
-        current_close = close.iloc[-1]
-        prev_close = close.iloc[-2] if len(close) > 1 else current_close
-        current_ema50 = ema50.iloc[-1]
-        current_ema200 = ema200.iloc[-1]
-        current_rsi = rsi.iloc[-1]
-        current_volume = volume.iloc[-1]
-        current_vol_sma = volume_sma20.iloc[-1]
-        current_highest_high = highest_high_20.iloc[-1]
-
-        cond1 = current_close > current_highest_high and prev_close <= current_highest_high
-        cond2 = current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False
-        cond3 = current_rsi > 60
-        cond4 = current_ema50 > current_ema200
-        cond5 = current_close > 100
-
-        if cond1 and cond2 and cond3 and cond4 and cond5:
-            return {
-                'Stock': name,
-                'Close': round(current_close, 2),
-                'RSI': round(current_rsi, 1),
-                'Vol Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
-                '20d High': round(current_highest_high, 2),
-                'Entry': round(current_close, 2),
-                'Target': round(current_close * 1.1, 2),
-                'Stop Loss': round(current_highest_high * 0.98, 2)
-            }
-        return None
-    except Exception:
-        return None
-
-def intraday_breakout_breakdown_signal(name):
-    ticker = ALL_STOCKS[name]
-    df = get_intraday_data(ticker)
-    if df.empty or len(df) < 20:
-        return None
-    try:
-        close = df['Close'].astype(float)
-        high = df['High'].astype(float)
-        low = df['Low'].astype(float)
-        volume = df['Volume'].astype(float)
-
-        rsi = RSIIndicator(close).rsi()
-        volume_sma20 = volume.rolling(20).mean()
-        typical_price = (high + low + close) / 3
-        vwap = (typical_price * volume).cumsum() / volume.cumsum()
-
-        current_close = close.iloc[-1]
-        prev_high = high.iloc[-2] if len(high) > 1 else high.iloc[-1]
-        prev_low = low.iloc[-2] if len(low) > 1 else low.iloc[-1]
-        current_rsi = rsi.iloc[-1]
-        current_volume = volume.iloc[-1]
-        current_vol_sma = volume_sma20.iloc[-1]
-        current_vwap = vwap.iloc[-1]
-
-        if (current_close > current_vwap and
-            current_rsi > 55 and
-            (current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False) and
-            current_close > prev_high):
-            return {
-                'Stock': name,
-                'Type': 'BREAKOUT',
-                'Close': round(current_close, 2),
-                'RSI': round(current_rsi, 1),
-                'Vol Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
-                'VWAP': round(current_vwap, 2),
-                'Entry': round(current_close, 2),
-                'Target': round(current_close * 1.02, 2),
-                'Stop Loss': round(current_vwap * 0.99, 2)
-            }
-        elif (current_close < current_vwap and
-              current_rsi < 45 and
-              (current_volume > 1.5 * current_vol_sma if current_vol_sma > 0 else False) and
-              current_close < prev_low):
-            return {
-                'Stock': name,
-                'Type': 'BREAKDOWN',
-                'Close': round(current_close, 2),
-                'RSI': round(current_rsi, 1),
-                'Vol Ratio': round(current_volume / current_vol_sma, 2) if current_vol_sma > 0 else 0,
-                'VWAP': round(current_vwap, 2),
-                'Entry': round(current_close, 2),
-                'Target': round(current_close * 0.98, 2),
-                'Stop Loss': round(current_vwap * 1.01, 2)
-            }
-        return None
-    except Exception:
-        return None
-
 def ai_intraday_buy_signal(df, name):
     if df.empty or len(df) < 20:
         return None
@@ -1034,6 +887,7 @@ def ai_intraday_buy_signal(df, name):
             stop = entry * 0.98
             return {
                 'Stock': name,
+                'Signal': 'BUY',
                 'Entry': round(entry, 2),
                 'Target': round(target, 2),
                 'Stop Loss': round(stop, 2),
@@ -1087,6 +941,7 @@ def ai_intraday_sell_signal(df, name):
             stop = entry * 1.02
             return {
                 'Stock': name,
+                'Signal': 'SELL',
                 'Entry': round(entry, 2),
                 'Target': round(target, 2),
                 'Stop Loss': round(stop, 2),
@@ -1106,11 +961,9 @@ def intraday_picks():
         df = get_price_data(ticker)
         buy_sig = ai_intraday_buy_signal(df, name)
         if buy_sig:
-            buy_sig['Signal'] = 'BUY'
             stock_signals[name] = buy_sig
         sell_sig = ai_intraday_sell_signal(df, name)
         if sell_sig:
-            sell_sig['Signal'] = 'SELL'
             if name in stock_signals:
                 if sell_sig['Score'] > stock_signals[name]['Score']:
                     stock_signals[name] = sell_sig
@@ -1118,71 +971,6 @@ def intraday_picks():
                 stock_signals[name] = sell_sig
     picks = list(stock_signals.values())
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
-
-# ------------------------------
-# SCREEN STOCK FUNCTION (for holdings recommendations)
-# ------------------------------
-def screen_stock(fund):
-    if fund is None:
-        return "SELL", {}, 0, {}
-    
-    criteria_original = {
-        'Sales growth 3Y >15%': fund['sales_growth_3y'] > 15 if not pd.isna(fund['sales_growth_3y']) else False,
-        'Profit growth 3Y >15%': fund['profit_growth_3y'] > 15 if not pd.isna(fund['profit_growth_3y']) else False,
-        'Mkt Cap >1000 Cr': fund['market_cap'] > 1000 if not pd.isna(fund['market_cap']) else False,
-        'ROCE >15%': fund['roce'] > 15 if not pd.isna(fund['roce']) else False,
-        'Debt/Equity <0.5': fund['de_ratio'] < 0.5 if not pd.isna(fund['de_ratio']) else False,
-        'ICR >3': fund['icr'] > 3 if not pd.isna(fund['icr']) else False,
-        'Down from 52W high >30%': fund['down_from_high'] > 30 if not pd.isna(fund['down_from_high']) else False,
-        'Avg FCF >1 Cr': fund['avg_fcf'] > 1 if not pd.isna(fund['avg_fcf']) else False,
-        'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
-    }
-    
-    criteria_magic = {
-        'ROIC >25%': fund['roic'] > 25 if not pd.isna(fund['roic']) else False,
-        'Earnings Yield >15%': fund['ey'] > 15 if not pd.isna(fund['ey']) else False,
-        'Book Value >0': fund['book_value'] > 0 if not pd.isna(fund['book_value']) else False,
-        'Market Cap >15 Cr': fund['market_cap'] > 15 if not pd.isna(fund['market_cap']) else False,
-        'ROCE >20%': fund['roce'] > 20 if not pd.isna(fund['roce']) else False,
-        'Sales growth 5Y >10%': fund['sales_growth_5y'] > 10 if not pd.isna(fund['sales_growth_5y']) else False,
-        'Profit growth 5Y >15%': fund['profit_growth_5y'] > 15 if not pd.isna(fund['profit_growth_5y']) else False,
-        'Debt/Equity <0.2': fund['de_ratio'] < 0.2 if not pd.isna(fund['de_ratio']) else False,
-        'Promoter >60%': fund['promoter'] > 60 if not pd.isna(fund['promoter']) else False,
-        'Net Profit >200 Cr': fund['net_profit'] > 200 if not pd.isna(fund['net_profit']) else False
-    }
-    
-    all_criteria = {**criteria_original, **criteria_magic}
-    criteria_met = sum(all_criteria.values())
-    total_criteria = len(all_criteria)
-    
-    values = {
-        'Sales Gr 3Y': fund['sales_growth_3y'],
-        'Profit Gr 3Y': fund['profit_growth_3y'],
-        'Sales Gr 5Y': fund['sales_growth_5y'],
-        'Profit Gr 5Y': fund['profit_growth_5y'],
-        'Mkt Cap': fund['market_cap'],
-        'ROCE': fund['roce'],
-        'ROIC': fund['roic'],
-        'D/E': fund['de_ratio'],
-        'ICR': fund['icr'],
-        'Down 52W': fund['down_from_high'],
-        'Avg FCF': fund['avg_fcf'],
-        'Promoter': fund['promoter'],
-        'Book Value': fund['book_value'],
-        'Net Profit': fund['net_profit'],
-        'EY': fund['ey']
-    }
-    
-    if criteria_met >= total_criteria * 0.8:
-        rec = "SUPER BUY"
-    elif criteria_met >= total_criteria * 0.6:
-        rec = "BUY"
-    elif criteria_met >= total_criteria * 0.3:
-        rec = "HOLD"
-    else:
-        rec = "SELL"
-        
-    return rec, all_criteria, criteria_met, values
 
 # ------------------------------
 # LOGIN PAGE
@@ -1382,19 +1170,15 @@ def main_app():
         st.write("If data fetch fails, try running this command in your terminal:")
         st.code("pip install --upgrade yfinance")
 
-    # ========== TABS ==========
-    screener_tab1, screener_tab2, screener_tab3, screener_tab4, screener_tab5, custom_fv_tab, final_action_tab = st.tabs([
-        "🤖 AI Swing Scanner", 
-        "💰 Fair Value Analysis (DCF)",
-        "📈 Fundamental Breakout",
-        "⚡ Intraday Breakout & Breakdown (5-min)",
+    # ========== TABS (Only 3) ==========
+    tab1, tab2, tab3 = st.tabs([
+        "🤖 AI Swing Trading Scanner", 
         "🤖 AI Intraday Picks",
-        "📊 Custom Fair Value (EPS × Growth)",
-        "📊 Final Portfolio Action Table"
+        "📊 Custom Fair Value + Final Portfolio Action"
     ])
 
     # ----- Tab 1: AI Swing Scanner -----
-    with screener_tab1:
+    with tab1:
         st.markdown("## 🤖 AI Swing Trading Scanner")
         st.caption("AI-powered swing signals combining technical rules with RandomForest.")
         with st.spinner("Fetching swing signals..."):
@@ -1424,78 +1208,8 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
-    # ----- Tab 2: Fair Value Analysis (DCF) -----
-    with screener_tab2:
-        st.markdown("## 💰 Fair Value Analysis (DCF)")
-        st.caption("Intrinsic value based on Discounted Cash Flow model. Buy when price is below fair value.")
-        st.info("This tab uses the DCF model. For the EPS×Growth formula, see the Custom Fair Value tab.")
-        
-        if st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty:
-            dcf_data = []
-            for _, row in st.session_state.portfolio_df.iterrows():
-                stock = row['Stock']
-                ticker = ALL_STOCKS.get(stock)
-                fund = get_fundamental_data(ticker)
-                if fund:
-                    fair_value = calculate_fair_value(fund)
-                    if fair_value:
-                        dcf_data.append({
-                            'Stock': stock,
-                            'Current Price': row['Current Price'],
-                            'DCF Fair Value': round(fair_value, 2),
-                            'Upside %': round((fair_value - row['Current Price']) / row['Current Price'] * 100, 1) if fair_value > row['Current Price'] else round((row['Current Price'] - fair_value) / fair_value * 100, 1),
-                            'Status': 'Undervalued' if fair_value > row['Current Price'] else 'Overvalued'
-                        })
-            if dcf_data:
-                dcf_df = pd.DataFrame(dcf_data)
-                st.dataframe(dcf_df.style.format({
-                    'Current Price': '₹{:.2f}',
-                    'DCF Fair Value': '₹{:.2f}',
-                    'Upside %': '{:.1f}%'
-                }).applymap(
-                    lambda x: 'background-color: #d4edda' if x == 'Undervalued' else ('background-color: #f8d7da' if x == 'Overvalued' else ''),
-                    subset=['Status']
-                ), use_container_width=True, hide_index=True)
-            else:
-                st.info("No DCF data available for your holdings.")
-        else:
-            st.info("Add stocks to see DCF analysis.")
-
-    # ----- Tab 3: Fundamental Breakout (placeholder) -----
-    with screener_tab3:
-        st.markdown("## 📈 Fundamental Breakout Screener")
-        st.caption("Stocks meeting: Price >500, Mkt Cap >500 Cr, Sales & Profit growth >20%, ROCE >10%, P/E > 15.")
-        st.info("This screener is under development. Please check back later.")
-
-    # ----- Tab 4: Intraday Breakout & Breakdown -----
-    with screener_tab4:
-        st.markdown("## ⚡ Intraday Breakout & Breakdown Screener (5-min)")
-        st.caption("Real‑time 5‑minute signals: Breakout (up) and Breakdown (down).")
-        with st.spinner("Scanning for intraday opportunities..."):
-            intraday_signals = []
-            total_stocks = len(ALL_STOCKS)
-            progress_bar = st.progress(0, text="Scanning stocks...")
-            for idx, (name, ticker) in enumerate(ALL_STOCKS.items()):
-                sig = intraday_breakout_breakdown_signal(name)
-                if sig:
-                    intraday_signals.append(sig)
-                progress_bar.progress((idx+1)/total_stocks)
-            progress_bar.empty()
-        if intraday_signals:
-            intraday_df = pd.DataFrame(intraday_signals)
-            cols = ['Stock', 'Type', 'Close', 'RSI', 'Vol Ratio', 'VWAP', 'Entry', 'Target', 'Stop Loss']
-            intraday_df = intraday_df[[c for c in cols if c in intraday_df.columns]]
-            st.markdown('<span class="top-pick-badge">⭐ TOP INTRADAY SIGNAL</span>', unsafe_allow_html=True)
-            st.dataframe(intraday_df, width='stretch')
-        else:
-            no_stocks_message(
-                "Intraday Breakout & Breakdown Screener",
-                "• Breakout: Close > VWAP, RSI > 55, Volume > 1.5× avg, Close > Previous High<br>"
-                "• Breakdown: Close < VWAP, RSI < 45, Volume > 1.5× avg, Close < Previous Low"
-            )
-
-    # ----- Tab 5: AI Intraday Picks -----
-    with screener_tab5:
+    # ----- Tab 2: AI Intraday Picks -----
+    with tab2:
         st.markdown("## 🤖 AI Intraday Picks")
         st.caption("AI‑powered intraday picks – only the highest‑confidence signal per stock is shown. Higher score = stronger signal.")
         with st.spinner("Scanning for AI intraday opportunities..."):
@@ -1509,8 +1223,8 @@ def main_app():
         else:
             no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
-    # ----- Tab 6: Custom Fair Value (EPS × Growth) -----
-    with custom_fv_tab:
+    # ----- Tab 3: Custom Fair Value + Final Portfolio Action Table (combined) -----
+    with tab3:
         st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
         st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
         
@@ -1529,14 +1243,12 @@ def main_app():
         
         rows = []
         for stock in stock_list:
-            # Get current price first
             ticker = stock["symbol"]
             price_df = get_price_data(ticker)
             if price_df.empty:
                 continue
             current_price = price_df['Close'].iloc[-1]
             
-            # Use robust fair value
             fair_value = get_reliable_fair_value(ticker, current_price)
             if fair_value is None:
                 continue
@@ -1544,7 +1256,6 @@ def main_app():
             buy_low = fair_value * 0.80
             buy_high = fair_value * 0.85
             
-            # Also get EPS and growth for display
             eps, growth = get_reliable_eps_and_growth(ticker, current_price)
             if eps is None:
                 eps = np.nan
@@ -1561,8 +1272,8 @@ def main_app():
             })
         
         if rows:
-            df = pd.DataFrame(rows)
-            for category, group in df.groupby("Category"):
+            df_fv = pd.DataFrame(rows)
+            for category, group in df_fv.groupby("Category"):
                 st.markdown(f"### {category}")
                 st.dataframe(
                     group.drop(columns=["Category"]),
@@ -1570,10 +1281,9 @@ def main_app():
                     hide_index=True
                 )
         else:
-            st.info("No data available. Check your internet connection or stock symbols.")
-
-    # ----- Tab 7: Final Portfolio Action Table -----
-    with final_action_tab:
+            st.info("No fair value data available. Check your internet connection or stock symbols.")
+        
+        st.markdown("---")
         st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
         st.caption("**Current Price** vs **Buy Zone** – Buy when price falls into the Buy Zone. **Sell Zone** is for profit booking.")
         
@@ -1639,7 +1349,6 @@ def main_app():
                 if not ticker:
                     continue
                 
-                # Use robust fair value calculation
                 fair_value = get_reliable_fair_value(ticker, current_price)
                 fair_values[stock] = fair_value
                 
@@ -1648,7 +1357,6 @@ def main_app():
                 sell_zone_low = fair_value * 1.2
                 sell_zone_high = fair_value * 1.3
                 
-                # Determine action
                 if current_price <= buy_zone_high:
                     if current_price <= buy_zone_low:
                         action = "BUY"
@@ -1675,10 +1383,8 @@ def main_app():
                     priority = "⭐"
                     verdict = "Overvalued - Exit or reduce"
                 
-                # Check if in buy zone
                 in_buy_zone = "✅ Yes" if buy_zone_low <= current_price <= buy_zone_high else "❌ No"
                 
-                # Allocation suggestion
                 if "⭐⭐⭐⭐⭐" in priority:
                     allocation = "15–20%"
                 elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
@@ -1692,7 +1398,6 @@ def main_app():
                 else:
                     allocation = "0–2%"
                 
-                # Override verdict for known stocks (optional)
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1735,7 +1440,6 @@ def main_app():
                     'Sell Zone (₹)': f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}",
                     'Allocation': allocation,
                     'Verdict': verdict,
-                    # Hidden fields for alert logic
                     'Buy Zone Low': buy_zone_low,
                     'Buy Zone High': buy_zone_high,
                     'Sell Zone Low': sell_zone_low,
@@ -1808,11 +1512,8 @@ def main_app():
             else:
                 st.success("✅ All BUY recommendations are currently in the buy zone!")
             
-            # ------------------------------
-            # AUTO-ALERTS FOR STRONG SIGNALS
-            # ------------------------------
+            # Auto-alerts for strong signals
             def check_strong_signals_and_alert(portfolio_df):
-                """Send alerts for strong buy (⭐⭐⭐⭐⭐) and sell (SELL) signals."""
                 if not (st.session_state.get('telegram_enabled', False) or st.session_state.get('email_enabled', False)):
                     return
                 
@@ -1821,56 +1522,36 @@ def main_app():
                     action = row['Action']
                     priority = row['Priority']
                     current_price_str = row['Current Price']
-                    # Extract numeric price
                     current_price = float(current_price_str.replace('₹', '').replace(',', ''))
                     buy_zone_low = row['Buy Zone Low']
                     buy_zone_high = row['Buy Zone High']
                     sell_zone_low = row['Sell Zone Low']
                     sell_zone_high = row['Sell Zone High']
                     
-                    # Strong Buy
                     if action == 'BUY' and priority == '⭐⭐⭐⭐⭐':
                         key = f"strong_buy_{stock}"
                         if st.session_state.alert_system.should_send_alert(key):
-                            # Prevent duplicate alerts in same session (optional)
                             if key in st.session_state.alerts_sent_this_session:
                                 continue
                             st.session_state.alerts_sent_this_session.add(key)
-                            
-                            # Send alert
                             target_zone = f"₹{round(buy_zone_low, 2)} – ₹{round(buy_zone_high, 2)}"
                             if st.session_state.get('telegram_enabled', False):
-                                st.session_state.alert_system.send_telegram_alert(
-                                    stock, current_price, buy_zone_low,
-                                    signal_type="Strong Buy", target_zone=target_zone
-                                )
+                                st.session_state.alert_system.send_telegram_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone)
                             if st.session_state.get('email_enabled', False):
-                                st.session_state.alert_system.send_email_alert(
-                                    stock, current_price, buy_zone_low,
-                                    signal_type="Strong Buy", target_zone=target_zone
-                                )
+                                st.session_state.alert_system.send_email_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone)
                     
-                    # Strong Sell
                     elif action == 'SELL':
                         key = f"strong_sell_{stock}"
                         if st.session_state.alert_system.should_send_alert(key):
                             if key in st.session_state.alerts_sent_this_session:
                                 continue
                             st.session_state.alerts_sent_this_session.add(key)
-                            
                             target_zone = f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}"
                             if st.session_state.get('telegram_enabled', False):
-                                st.session_state.alert_system.send_telegram_alert(
-                                    stock, current_price, sell_zone_low,
-                                    signal_type="Strong Sell", target_zone=target_zone
-                                )
+                                st.session_state.alert_system.send_telegram_alert(stock, current_price, sell_zone_low, "Strong Sell", target_zone)
                             if st.session_state.get('email_enabled', False):
-                                st.session_state.alert_system.send_email_alert(
-                                    stock, current_price, sell_zone_low,
-                                    signal_type="Strong Sell", target_zone=target_zone
-                                )
+                                st.session_state.alert_system.send_email_alert(stock, current_price, sell_zone_low, "Strong Sell", target_zone)
             
-            # Call the auto-alert function after the portfolio dataframe is built
             check_strong_signals_and_alert(result_df)
             
         else:
@@ -1965,7 +1646,6 @@ def main_app():
                 fund = get_fundamental_data(ticker)
                 eps_growth_buy = None
                 if fund:
-                    # Use robust fair value to get buy zone low
                     fair_value = get_reliable_fair_value(ticker, current_price)
                     eps_growth_buy = fair_value * 0.8 if fair_value else None
                 
