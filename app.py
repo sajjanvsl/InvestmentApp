@@ -1,4 +1,3 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -710,74 +709,105 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
-# PIOTROSKI F-SCORE CALCULATION
+# PIOTROSKI SCORE CALCULATION
 # ------------------------------
-def calculate_piotroski_score(fund):
+def compute_piotroski_score(ticker):
     """
-    Computes Piotroski F-Score (0-9) based on:
-    Profitability: ROA > 0, CFO > 0, ΔROA > 0, Accrual = CFO > ROA
-    Leverage/Liquidity: ΔLeverage < 0, ΔLiquidity > 0, No new shares issued
-    Operating Efficiency: ΔGross Margin > 0, ΔAsset Turnover > 0
+    Compute Piotroski F-Score (0-9) using yfinance data.
     """
-    if fund is None:
-        return 0
-    
-    score = 0
-    
-    # Profitability
-    # 1. Return on Assets (ROA) > 0
-    roa = fund.get('roce')  # approximate using ROCE
-    if roa is not None and not pd.isna(roa) and roa > 0:
-        score += 1
-    
-    # 2. Cash Flow from Operations (CFO) > 0
-    cfo = fund.get('avg_fcf')
-    if cfo is not None and not pd.isna(cfo) and cfo > 0:
-        score += 1
-    
-    # 3. Change in ROA > 0 (use 3y growth as proxy)
-    roa_growth = fund.get('roce_3y_growth')
-    # We need to compute ROCE growth from historical data – not available in current fund dict
-    # Instead, use profit growth 3y as a proxy for profitability improvement
-    profit_growth = fund.get('profit_growth_3y')
-    if profit_growth is not None and not pd.isna(profit_growth) and profit_growth > 0:
-        score += 1
-    
-    # 4. Accrual = CFO > ROA (cash flow higher than accounting profit)
-    if cfo is not None and roa is not None and not pd.isna(cfo) and not pd.isna(roa) and cfo > roa:
-        score += 1
-    
-    # Leverage/Liquidity
-    # 5. Change in Leverage (D/E) < 0
-    de = fund.get('de_ratio')
-    # Need historical D/E to compute change – not available. Use current D/E < 0.5 as a proxy
-    if de is not None and not pd.isna(de) and de < 0.5:
-        score += 1
-    
-    # 6. Change in Current Ratio > 0 (use ICR > 3 as proxy for liquidity improvement)
-    icr = fund.get('icr')
-    if icr is not None and not pd.isna(icr) and icr > 3:
-        score += 1
-    
-    # 7. No new shares issued (use share count change – not available; assume no)
-    # We'll skip this for now; default to 0 if cannot determine. Could check sharesOutstanding from info.
-    shares = fund.get('info', {}).get('sharesOutstanding')
-    if shares is not None and shares > 0:
-        # If we had previous shares, we could compare; not available, so skip.
-        pass
-    
-    # Operating Efficiency
-    # 8. Change in Gross Margin > 0 (use sales growth > profit growth? proxy)
-    sales_growth = fund.get('sales_growth_3y')
-    profit_growth_ = fund.get('profit_growth_3y')
-    if sales_growth is not None and profit_growth_ is not None and not pd.isna(sales_growth) and not pd.isna(profit_growth_) and profit_growth_ > sales_growth:
-        score += 1
-    
-    # 9. Change in Asset Turnover > 0 (use sales growth > 0 as proxy)
-    if sales_growth is not None and not pd.isna(sales_growth) and sales_growth > 0:
-        score += 1
-    
-    return min(score, 9)  # ensure max 9
+    try:
+        t = yf.Ticker(ticker)
+        financials = t.financials
+        balance_sheet = t.balance_sheet
+        cashflow = t.cashflow
+
+        # Need at least two years of data for comparisons
+        if financials.empty or balance_sheet.empty or cashflow.empty:
+            return None
+
+        # Helper to get the most recent value and the previous year's value
+        def get_latest_and_prev(series):
+            if len(series) >= 2:
+                latest = series.iloc[0]  # most recent
+                prev = series.iloc[1]    # previous year
+                return latest, prev
+            elif len(series) == 1:
+                return series.iloc[0], None
+            else:
+                return None, None
+
+        # 1. Positive net income
+        net_income = safe_get_series(financials, 'Net Income')
+        ni_latest, ni_prev = get_latest_and_prev(net_income)
+        score = 1 if ni_latest and ni_latest > 0 else 0
+
+        # 2. Positive ROA (Net Income / Total Assets)
+        total_assets = safe_get_series(balance_sheet, 'Total Assets')
+        ta_latest, ta_prev = get_latest_and_prev(total_assets)
+        if ni_latest and ta_latest and ta_latest > 0:
+            roa_latest = ni_latest / ta_latest
+            if roa_latest > 0:
+                score += 1
+
+        # 3. Positive operating cash flow
+        ocf = safe_get_series(cashflow, 'Operating Cash Flow')
+        ocf_latest, ocf_prev = get_latest_and_prev(ocf)
+        if ocf_latest and ocf_latest > 0:
+            score += 1
+
+        # 4. CFO > Net Income (CFROA)
+        if ocf_latest and ni_latest and ocf_latest > ni_latest:
+            score += 1
+
+        # 5. Lower long-term debt (compare to previous year)
+        ltd = safe_get_series(balance_sheet, 'Long Term Debt')
+        ltd_latest, ltd_prev = get_latest_and_prev(ltd)
+        if ltd_latest is not None and ltd_prev is not None:
+            if ltd_latest < ltd_prev:
+                score += 1
+
+        # 6. Higher current ratio (Current Assets / Current Liabilities) compared to previous year
+        current_assets = safe_get_series(balance_sheet, 'Current Assets')
+        current_liabilities = safe_get_series(balance_sheet, 'Current Liabilities')
+        ca_latest, ca_prev = get_latest_and_prev(current_assets)
+        cl_latest, cl_prev = get_latest_and_prev(current_liabilities)
+        if ca_latest and cl_latest and ca_prev and cl_prev and cl_latest > 0 and cl_prev > 0:
+            cr_latest = ca_latest / cl_latest
+            cr_prev = ca_prev / cl_prev
+            if cr_latest > cr_prev:
+                score += 1
+
+        # 7. No new shares (shares outstanding not increased)
+        shares = safe_get_series(balance_sheet, 'Ordinary Shares Number')
+        shares_latest, shares_prev = get_latest_and_prev(shares)
+        if shares_latest is not None and shares_prev is not None:
+            if shares_latest <= shares_prev:
+                score += 1
+
+        # 8. Gross margin improvement (Gross Profit / Revenue)
+        gross_profit = safe_get_series(financials, 'Gross Profit')
+        revenue = safe_get_series(financials, 'Total Revenue')
+        gp_latest, gp_prev = get_latest_and_prev(gross_profit)
+        rev_latest, rev_prev = get_latest_and_prev(revenue)
+        if gp_latest and rev_latest and gp_prev and rev_prev and rev_latest > 0 and rev_prev > 0:
+            gm_latest = gp_latest / rev_latest
+            gm_prev = gp_prev / rev_prev
+            if gm_latest > gm_prev:
+                score += 1
+
+        # 9. Asset turnover improvement (Revenue / Total Assets)
+        rev_latest, rev_prev = get_latest_and_prev(revenue)
+        ta_latest, ta_prev = get_latest_and_prev(total_assets)
+        if rev_latest and ta_latest and rev_prev and ta_prev and ta_latest > 0 and ta_prev > 0:
+            at_latest = rev_latest / ta_latest
+            at_prev = rev_prev / ta_prev
+            if at_latest > at_prev:
+                score += 1
+
+        return score
+
+    except Exception:
+        return None
 
 # ------------------------------
 # ROBUST FAIR VALUE CALCULATION
@@ -831,72 +861,7 @@ def get_reliable_fair_value(ticker, current_price):
     return current_price * 1.2  # rough 20% upside
 
 # ------------------------------
-# SCREEN STOCK FUNCTION (for holdings recommendations)
-# ------------------------------
-def screen_stock(fund):
-    if fund is None:
-        return "SELL", {}, 0, {}
-    
-    criteria_original = {
-        'Sales growth 3Y >15%': fund['sales_growth_3y'] > 15 if not pd.isna(fund['sales_growth_3y']) else False,
-        'Profit growth 3Y >15%': fund['profit_growth_3y'] > 15 if not pd.isna(fund['profit_growth_3y']) else False,
-        'Mkt Cap >1000 Cr': fund['market_cap'] > 1000 if not pd.isna(fund['market_cap']) else False,
-        'ROCE >15%': fund['roce'] > 15 if not pd.isna(fund['roce']) else False,
-        'Debt/Equity <0.5': fund['de_ratio'] < 0.5 if not pd.isna(fund['de_ratio']) else False,
-        'ICR >3': fund['icr'] > 3 if not pd.isna(fund['icr']) else False,
-        'Down from 52W high >30%': fund['down_from_high'] > 30 if not pd.isna(fund['down_from_high']) else False,
-        'Avg FCF >1 Cr': fund['avg_fcf'] > 1 if not pd.isna(fund['avg_fcf']) else False,
-        'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
-    }
-    
-    criteria_magic = {
-        'ROIC >25%': fund['roic'] > 25 if not pd.isna(fund['roic']) else False,
-        'Earnings Yield >15%': fund['ey'] > 15 if not pd.isna(fund['ey']) else False,
-        'Book Value >0': fund['book_value'] > 0 if not pd.isna(fund['book_value']) else False,
-        'Market Cap >15 Cr': fund['market_cap'] > 15 if not pd.isna(fund['market_cap']) else False,
-        'ROCE >20%': fund['roce'] > 20 if not pd.isna(fund['roce']) else False,
-        'Sales growth 5Y >10%': fund['sales_growth_5y'] > 10 if not pd.isna(fund['sales_growth_5y']) else False,
-        'Profit growth 5Y >15%': fund['profit_growth_5y'] > 15 if not pd.isna(fund['profit_growth_5y']) else False,
-        'Debt/Equity <0.2': fund['de_ratio'] < 0.2 if not pd.isna(fund['de_ratio']) else False,
-        'Promoter >60%': fund['promoter'] > 60 if not pd.isna(fund['promoter']) else False,
-        'Net Profit >200 Cr': fund['net_profit'] > 200 if not pd.isna(fund['net_profit']) else False
-    }
-    
-    all_criteria = {**criteria_original, **criteria_magic}
-    criteria_met = sum(all_criteria.values())
-    total_criteria = len(all_criteria)
-    
-    values = {
-        'Sales Gr 3Y': fund['sales_growth_3y'],
-        'Profit Gr 3Y': fund['profit_growth_3y'],
-        'Sales Gr 5Y': fund['sales_growth_5y'],
-        'Profit Gr 5Y': fund['profit_growth_5y'],
-        'Mkt Cap': fund['market_cap'],
-        'ROCE': fund['roce'],
-        'ROIC': fund['roic'],
-        'D/E': fund['de_ratio'],
-        'ICR': fund['icr'],
-        'Down 52W': fund['down_from_high'],
-        'Avg FCF': fund['avg_fcf'],
-        'Promoter': fund['promoter'],
-        'Book Value': fund['book_value'],
-        'Net Profit': fund['net_profit'],
-        'EY': fund['ey']
-    }
-    
-    if criteria_met >= total_criteria * 0.8:
-        rec = "SUPER BUY"
-    elif criteria_met >= total_criteria * 0.6:
-        rec = "BUY"
-    elif criteria_met >= total_criteria * 0.3:
-        rec = "HOLD"
-    else:
-        rec = "SELL"
-        
-    return rec, all_criteria, criteria_met, values
-
-# ------------------------------
-# SCREENER FUNCTIONS (Swing and Intraday)
+# SCREENER FUNCTIONS
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -1109,6 +1074,71 @@ def intraday_picks():
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
+# SCREEN STOCK FUNCTION (for holdings recommendations)
+# ------------------------------
+def screen_stock(fund):
+    if fund is None:
+        return "SELL", {}, 0, {}
+    
+    criteria_original = {
+        'Sales growth 3Y >15%': fund['sales_growth_3y'] > 15 if not pd.isna(fund['sales_growth_3y']) else False,
+        'Profit growth 3Y >15%': fund['profit_growth_3y'] > 15 if not pd.isna(fund['profit_growth_3y']) else False,
+        'Mkt Cap >1000 Cr': fund['market_cap'] > 1000 if not pd.isna(fund['market_cap']) else False,
+        'ROCE >15%': fund['roce'] > 15 if not pd.isna(fund['roce']) else False,
+        'Debt/Equity <0.5': fund['de_ratio'] < 0.5 if not pd.isna(fund['de_ratio']) else False,
+        'ICR >3': fund['icr'] > 3 if not pd.isna(fund['icr']) else False,
+        'Down from 52W high >30%': fund['down_from_high'] > 30 if not pd.isna(fund['down_from_high']) else False,
+        'Avg FCF >1 Cr': fund['avg_fcf'] > 1 if not pd.isna(fund['avg_fcf']) else False,
+        'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
+    }
+    
+    criteria_magic = {
+        'ROIC >25%': fund['roic'] > 25 if not pd.isna(fund['roic']) else False,
+        'Earnings Yield >15%': fund['ey'] > 15 if not pd.isna(fund['ey']) else False,
+        'Book Value >0': fund['book_value'] > 0 if not pd.isna(fund['book_value']) else False,
+        'Market Cap >15 Cr': fund['market_cap'] > 15 if not pd.isna(fund['market_cap']) else False,
+        'ROCE >20%': fund['roce'] > 20 if not pd.isna(fund['roce']) else False,
+        'Sales growth 5Y >10%': fund['sales_growth_5y'] > 10 if not pd.isna(fund['sales_growth_5y']) else False,
+        'Profit growth 5Y >15%': fund['profit_growth_5y'] > 15 if not pd.isna(fund['profit_growth_5y']) else False,
+        'Debt/Equity <0.2': fund['de_ratio'] < 0.2 if not pd.isna(fund['de_ratio']) else False,
+        'Promoter >60%': fund['promoter'] > 60 if not pd.isna(fund['promoter']) else False,
+        'Net Profit >200 Cr': fund['net_profit'] > 200 if not pd.isna(fund['net_profit']) else False
+    }
+    
+    all_criteria = {**criteria_original, **criteria_magic}
+    criteria_met = sum(all_criteria.values())
+    total_criteria = len(all_criteria)
+    
+    values = {
+        'Sales Gr 3Y': fund['sales_growth_3y'],
+        'Profit Gr 3Y': fund['profit_growth_3y'],
+        'Sales Gr 5Y': fund['sales_growth_5y'],
+        'Profit Gr 5Y': fund['profit_growth_5y'],
+        'Mkt Cap': fund['market_cap'],
+        'ROCE': fund['roce'],
+        'ROIC': fund['roic'],
+        'D/E': fund['de_ratio'],
+        'ICR': fund['icr'],
+        'Down 52W': fund['down_from_high'],
+        'Avg FCF': fund['avg_fcf'],
+        'Promoter': fund['promoter'],
+        'Book Value': fund['book_value'],
+        'Net Profit': fund['net_profit'],
+        'EY': fund['ey']
+    }
+    
+    if criteria_met >= total_criteria * 0.8:
+        rec = "SUPER BUY"
+    elif criteria_met >= total_criteria * 0.6:
+        rec = "BUY"
+    elif criteria_met >= total_criteria * 0.3:
+        rec = "HOLD"
+    else:
+        rec = "SELL"
+        
+    return rec, all_criteria, criteria_met, values
+
+# ------------------------------
 # LOGIN PAGE
 # ------------------------------
 def show_login():
@@ -1194,6 +1224,8 @@ def main_app():
         st.session_state.alert_system = AlertSystem()
     if 'alerts_sent_this_session' not in st.session_state:
         st.session_state.alerts_sent_this_session = set()
+    if 'custom_buy_zones' not in st.session_state:
+        st.session_state.custom_buy_zones = {}  # store user-edited buy zones
 
     # Sync alert settings from stored settings
     st.session_state.email_enabled = st.session_state.settings.get('email_enabled', False)
@@ -1241,7 +1273,6 @@ def main_app():
             else:
                 st.info("💡 After saving, you need to start a conversation with your bot: Send `/start` to `@YourBotUsername` (replace with your bot's username) in Telegram. Then the bot can send you alerts.")
         
-        # Button to save settings
         if st.button("💾 Save Alert Settings", key="save_alert_settings_button"):
             st.session_state.settings = {
                 "email_enabled": email_enabled,
@@ -1263,7 +1294,6 @@ def main_app():
             st.session_state.telegram_chat_id = telegram_chat_id
             st.success("✅ Settings saved successfully!")
         
-        # Test alert buttons
         if st.button("🔔 Send Test Alert", key="test_alert_button"):
             if st.session_state.get('email_enabled', False):
                 result = st.session_state.alert_system.send_email_alert("TEST", 100, 90, "Test Alert", "₹90")
@@ -1283,128 +1313,6 @@ def main_app():
                         st.markdown("1. You have started a conversation with your bot by sending `/start` to `@YourBotUsername` in Telegram.")
                         st.markdown("2. Your numeric chat ID is correct (get it from @userinfobot).")
                         st.markdown("3. The bot token is correct.")
-        
-        # New button: Manual alert for strong signals
-        if st.button("📢 Send Alerts for Strong Signals Now", key="manual_alert_button"):
-            # Build current portfolio if not present
-            if st.session_state.portfolio_df is None and st.session_state.holdings_df is not None:
-                # rebuild portfolio (same logic as in holdings section)
-                portfolio_data = []
-                for idx, row in st.session_state.holdings_df.iterrows():
-                    name = row['Instrument']
-                    ticker = ALL_STOCKS.get(name)
-                    price_df = get_price_data(ticker)
-                    if price_df.empty:
-                        continue
-                    close_series = price_df['Close'].squeeze()
-                    if isinstance(close_series, pd.Series):
-                        current_price = close_series.iloc[-1]
-                    else:
-                        current_price = close_series
-                    try:
-                        current_price = float(current_price)
-                    except:
-                        continue
-                    portfolio_data.append({'Stock': name, 'Current Price': current_price})
-                temp_df = pd.DataFrame(portfolio_data)
-            elif st.session_state.portfolio_df is not None:
-                temp_df = st.session_state.portfolio_df[['Stock', 'Current Price']].copy()
-            else:
-                # no holdings, use sample
-                sample_portfolio = [
-                    {"Stock": "HDFCBANK", "Current Price": 1680.50},
-                    {"Stock": "VBL", "Current Price": 445.75},
-                    {"Stock": "IREDA", "Current Price": 115.63},
-                    {"Stock": "WAAREEENER", "Current Price": 2890.90},
-                    {"Stock": "MAZDOCK", "Current Price": 2332.90},
-                    {"Stock": "ADANIPORTS", "Current Price": 1362.40},
-                    {"Stock": "BSE", "Current Price": 2952.60},
-                    {"Stock": "HAL", "Current Price": 3935.40}
-                ]
-                temp_df = pd.DataFrame(sample_portfolio)
-            
-            # Build action data for these stocks (same logic as in final action table)
-            action_rows = []
-            for _, row in temp_df.iterrows():
-                stock = row['Stock']
-                current_price = row['Current Price']
-                ticker = ALL_STOCKS.get(stock)
-                if not ticker:
-                    continue
-                fair_value = get_reliable_fair_value(ticker, current_price)
-                buy_zone_low = fair_value * 0.8
-                buy_zone_high = fair_value * 0.85
-                sell_zone_low = fair_value * 1.2
-                sell_zone_high = fair_value * 1.3
-                
-                if current_price <= buy_zone_high:
-                    if current_price <= buy_zone_low:
-                        action = "BUY"
-                        priority = "⭐⭐⭐⭐⭐"
-                    else:
-                        action = "BUY"
-                        priority = "⭐⭐⭐⭐"
-                elif current_price <= fair_value:
-                    action = "BUY (DIP)"
-                    priority = "⭐⭐⭐"
-                elif current_price <= fair_value * 1.2:
-                    action = "HOLD"
-                    priority = "⭐⭐⭐"
-                elif current_price <= fair_value * 1.5:
-                    action = "REDUCE"
-                    priority = "⭐⭐"
-                else:
-                    action = "SELL"
-                    priority = "⭐"
-                
-                action_rows.append({
-                    'Stock': stock,
-                    'Current Price': current_price,
-                    'Action': action,
-                    'Priority': priority,
-                    'Buy Zone Low': buy_zone_low,
-                    'Buy Zone High': buy_zone_high,
-                    'Sell Zone Low': sell_zone_low,
-                    'Sell Zone High': sell_zone_high
-                })
-            
-            # Now send alerts for strong signals
-            alert_count = 0
-            for row in action_rows:
-                if row['Action'] == 'BUY' and row['Priority'] == '⭐⭐⭐⭐⭐':
-                    key = f"strong_buy_{row['Stock']}"
-                    if st.session_state.alert_system.should_send_alert(key):
-                        target_zone = f"₹{round(row['Buy Zone Low'], 2)} – ₹{round(row['Buy Zone High'], 2)}"
-                        if st.session_state.get('telegram_enabled', False):
-                            st.session_state.alert_system.send_telegram_alert(
-                                row['Stock'], row['Current Price'], row['Buy Zone Low'],
-                                "Strong Buy", target_zone
-                            )
-                        if st.session_state.get('email_enabled', False):
-                            st.session_state.alert_system.send_email_alert(
-                                row['Stock'], row['Current Price'], row['Buy Zone Low'],
-                                "Strong Buy", target_zone
-                            )
-                        alert_count += 1
-                elif row['Action'] == 'SELL':
-                    key = f"strong_sell_{row['Stock']}"
-                    if st.session_state.alert_system.should_send_alert(key):
-                        target_zone = f"₹{round(row['Sell Zone Low'], 2)} – ₹{round(row['Sell Zone High'], 2)}"
-                        if st.session_state.get('telegram_enabled', False):
-                            st.session_state.alert_system.send_telegram_alert(
-                                row['Stock'], row['Current Price'], row['Sell Zone Low'],
-                                "Strong Sell", target_zone
-                            )
-                        if st.session_state.get('email_enabled', False):
-                            st.session_state.alert_system.send_email_alert(
-                                row['Stock'], row['Current Price'], row['Sell Zone Low'],
-                                "Strong Sell", target_zone
-                            )
-                        alert_count += 1
-            if alert_count > 0:
-                st.success(f"✅ Sent {alert_count} alert(s) for strong signals.")
-            else:
-                st.info("No strong buy or sell signals found at this moment.")
         
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot. You must also send a message to your bot first (e.g., `/start`) to allow it to message you.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1600,6 +1508,7 @@ def main_app():
             
             action_data = []
             fair_values = {}
+            piotroski_scores = {}
             
             for _, row in action_df.iterrows():
                 stock = row['Stock']
@@ -1612,8 +1521,10 @@ def main_app():
                 fair_value = get_reliable_fair_value(ticker, current_price)
                 fair_values[stock] = fair_value
                 
-                buy_zone_low = fair_value * 0.8
-                buy_zone_high = fair_value * 0.85
+                # Use custom buy zones if available, else default
+                custom = st.session_state.custom_buy_zones.get(stock, {})
+                buy_zone_low = custom.get('buy_zone_low', fair_value * 0.8)
+                buy_zone_high = custom.get('buy_zone_high', fair_value * 0.85)
                 sell_zone_low = fair_value * 1.2
                 sell_zone_high = fair_value * 1.3
                 
@@ -1658,10 +1569,6 @@ def main_app():
                 else:
                     allocation = "0–2%"
                 
-                # Piotroski score
-                fund = get_fundamental_data(ticker)
-                piotroski = calculate_piotroski_score(fund) if fund else 0
-                
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1694,6 +1601,10 @@ def main_app():
                 if stock in verdict_map:
                     verdict = verdict_map[stock]
                 
+                # Compute Piotroski score
+                piotroski = compute_piotroski_score(ticker)
+                piotroski_scores[stock] = piotroski if piotroski is not None else "N/A"
+                
                 action_data.append({
                     'Stock': stock,
                     'Current Price': f"₹{current_price:.2f}",
@@ -1704,7 +1615,7 @@ def main_app():
                     'Sell Zone (₹)': f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}",
                     'Allocation': allocation,
                     'Verdict': verdict,
-                    'Piotroski Score': piotroski,
+                    'Piotroski Score': piotroski_scores[stock],
                     'Buy Zone Low': buy_zone_low,
                     'Buy Zone High': buy_zone_high,
                     'Sell Zone Low': sell_zone_low,
@@ -1717,8 +1628,12 @@ def main_app():
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
             
+            # Show table with Piotroski Score as last column
+            display_cols = ['Stock', 'Current Price', 'Action', 'Priority', 'Buy Zone (₹)', 'In Buy Zone', 
+                            'Sell Zone (₹)', 'Allocation', 'Verdict', 'Piotroski Score']
+            result_df_display = result_df[display_cols]
             st.dataframe(
-                result_df.style.applymap(
+                result_df_display.style.applymap(
                     lambda x: 'background-color: #d4edda' if x == 'BUY' else 
                              ('background-color: #fff3cd' if x == 'BUY (DIP)' else
                               ('background-color: #f8d7da' if x == 'SELL' else
@@ -1727,10 +1642,71 @@ def main_app():
                 ).applymap(
                     lambda x: 'background-color: #d4edda' if x == '✅ Yes' else ('background-color: #f8d7da' if x == '❌ No' else ''),
                     subset=['In Buy Zone']
+                ).applymap(
+                    lambda x: 'background-color: #e2f0d9' if isinstance(x, int) and x >= 7 else
+                              ('background-color: #fef9e7' if isinstance(x, int) and x >= 4 else
+                               ('background-color: #fce4e4' if isinstance(x, int) and x < 4 else '')),
+                    subset=['Piotroski Score']
                 ),
                 use_container_width=True,
                 hide_index=True
             )
+            
+            # Editable Buy Zones button
+            with st.expander("✏️ Edit Buy Zones"):
+                st.write("Modify the buy zone low and high for each stock. Changes affect alerts and the action table.")
+                edit_df = result_df[['Stock', 'Buy Zone Low', 'Buy Zone High']].copy()
+                edited = st.data_editor(edit_df, use_container_width=True, hide_index=True)
+                if st.button("💾 Save Buy Zones"):
+                    for _, row in edited.iterrows():
+                        stock = row['Stock']
+                        st.session_state.custom_buy_zones[stock] = {
+                            'buy_zone_low': row['Buy Zone Low'],
+                            'buy_zone_high': row['Buy Zone High']
+                        }
+                    st.success("Buy zones updated. Refresh the page to see changes.")
+                    st.rerun()
+            
+            # Manual alert button
+            col_alert1, col_alert2 = st.columns([1, 4])
+            with col_alert1:
+                if st.button("🔔 Send Strong Signals Alert Now", key="manual_alert_button"):
+                    # Trigger alerts for strong signals
+                    alerts_sent = []
+                    for _, row in result_df.iterrows():
+                        stock = row['Stock']
+                        action = row['Action']
+                        priority = row['Priority']
+                        current_price = float(row['Current Price'].replace('₹', '').replace(',', ''))
+                        buy_zone_low = row['Buy Zone Low']
+                        buy_zone_high = row['Buy Zone High']
+                        sell_zone_low = row['Sell Zone Low']
+                        sell_zone_high = row['Sell Zone High']
+                        
+                        if action == 'BUY' and priority == '⭐⭐⭐⭐⭐':
+                            key = f"strong_buy_{stock}"
+                            if st.session_state.alert_system.should_send_alert(key):
+                                target_zone = f"₹{round(buy_zone_low, 2)} – ₹{round(buy_zone_high, 2)}"
+                                if st.session_state.get('telegram_enabled', False):
+                                    if st.session_state.alert_system.send_telegram_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone):
+                                        alerts_sent.append(f"{stock} (Strong Buy)")
+                                if st.session_state.get('email_enabled', False):
+                                    if st.session_state.alert_system.send_email_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone):
+                                        alerts_sent.append(f"{stock} (Strong Buy)")
+                        elif action == 'SELL':
+                            key = f"strong_sell_{stock}"
+                            if st.session_state.alert_system.should_send_alert(key):
+                                target_zone = f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}"
+                                if st.session_state.get('telegram_enabled', False):
+                                    if st.session_state.alert_system.send_telegram_alert(stock, current_price, sell_zone_low, "Strong Sell", target_zone):
+                                        alerts_sent.append(f"{stock} (Strong Sell)")
+                                if st.session_state.get('email_enabled', False):
+                                    if st.session_state.alert_system.send_email_alert(stock, current_price, sell_zone_low, "Strong Sell", target_zone):
+                                        alerts_sent.append(f"{stock} (Strong Sell)")
+                    if alerts_sent:
+                        st.success(f"Alerts sent for: {', '.join(alerts_sent)}")
+                    else:
+                        st.info("No strong signals to alert at this time.")
             
             st.markdown("---")
             st.subheader("📊 Portfolio Summary")
@@ -1777,17 +1753,15 @@ def main_app():
             else:
                 st.success("✅ All BUY recommendations are currently in the buy zone!")
             
-            # Auto-alerts for strong signals (called automatically when portfolio is built)
+            # Auto-alerts for strong signals (runs once per portfolio build)
             def check_strong_signals_and_alert(portfolio_df):
                 if not (st.session_state.get('telegram_enabled', False) or st.session_state.get('email_enabled', False)):
                     return
-                
                 for _, row in portfolio_df.iterrows():
                     stock = row['Stock']
                     action = row['Action']
                     priority = row['Priority']
-                    current_price_str = row['Current Price']
-                    current_price = float(current_price_str.replace('₹', '').replace(',', ''))
+                    current_price = float(row['Current Price'].replace('₹', '').replace(',', ''))
                     buy_zone_low = row['Buy Zone Low']
                     buy_zone_high = row['Buy Zone High']
                     sell_zone_low = row['Sell Zone Low']
@@ -1804,7 +1778,6 @@ def main_app():
                                 st.session_state.alert_system.send_telegram_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone)
                             if st.session_state.get('email_enabled', False):
                                 st.session_state.alert_system.send_email_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone)
-                    
                     elif action == 'SELL':
                         key = f"strong_sell_{stock}"
                         if st.session_state.alert_system.should_send_alert(key):
@@ -1933,64 +1906,6 @@ def main_app():
                 st.success(f"✅ Alerts sent: {', '.join(alerts_triggered)}")
             else:
                 st.info("No alerts triggered at this time. Check your target prices and current prices.")
-        
-        # Editable target prices for each stock
-        st.markdown("---")
-        st.subheader("✏️ Set Custom Target Prices")
-        st.caption("Add or edit target prices per stock. Alerts will be sent when the price drops to or below any of these targets.")
-        
-        # Display current target prices in a table with ability to edit
-        target_df_data = []
-        for stock in st.session_state.portfolio_df['Stock'].unique():
-            current_targets = st.session_state.target_prices.get(stock, [])
-            if isinstance(current_targets, list):
-                target_str = ", ".join([f"₹{t:.2f}" for t in current_targets]) if current_targets else "None"
-            else:
-                target_str = f"₹{current_targets:.2f}" if current_targets else "None"
-            target_df_data.append({"Stock": stock, "Current Targets": target_str})
-        
-        target_df = pd.DataFrame(target_df_data)
-        st.dataframe(target_df, use_container_width=True, hide_index=True)
-        
-        # Input for new target
-        col1, col2, col3 = st.columns([2,1,1])
-        with col1:
-            selected_stock = st.selectbox("Select Stock", st.session_state.portfolio_df['Stock'].unique())
-        with col2:
-            new_target = st.number_input("Target Price (₹)", min_value=0.0, step=5.0, value=100.0)
-        with col3:
-            if st.button("Add/Update Target", key="add_target_button"):
-                current = st.session_state.target_prices.get(selected_stock, [])
-                if not isinstance(current, list):
-                    current = [current] if current else []
-                if new_target not in current:
-                    current.append(new_target)
-                    current.sort()
-                    st.session_state.target_prices[selected_stock] = current
-                    save_target_prices(st.session_state.target_prices)
-                    st.success(f"Added target ₹{new_target:.2f} for {selected_stock}")
-                else:
-                    st.warning("Target already exists.")
-                st.rerun()
-        
-        # Option to remove targets
-        with st.expander("🗑️ Remove Target Prices"):
-            for stock in st.session_state.portfolio_df['Stock'].unique():
-                targets = st.session_state.target_prices.get(stock, [])
-                if targets:
-                    for t in targets:
-                        if st.button(f"Remove ₹{t:.2f} for {stock}", key=f"rem_{stock}_{t}"):
-                            if isinstance(targets, list):
-                                targets.remove(t)
-                                if not targets:
-                                    del st.session_state.target_prices[stock]
-                                else:
-                                    st.session_state.target_prices[stock] = targets
-                            else:
-                                del st.session_state.target_prices[stock]
-                            save_target_prices(st.session_state.target_prices)
-                            st.success(f"Removed target ₹{t:.2f} for {stock}")
-                            st.rerun()
         
     else:
         st.info("No holdings data. Please add stocks using the section below.")
