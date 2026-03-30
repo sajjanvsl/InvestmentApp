@@ -1835,10 +1835,11 @@ def main_app():
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
        # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
-      # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
+         # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
     with tab4:
         st.markdown("## 📈 Swing Scanner (Fundamental + Technical)")
         st.caption("**Step 1:** Stocks meeting all fundamental filters. **Step 2:** Among them, those with a 3‑day high breakout trigger a buy signal.")
+        st.caption("**Filters:** Market Cap ₹10,000 Cr – ₹100,000 Cr, Sales growth 3Y > 20%, Profit growth 3Y > 20%, Promoter holding > 50%, ROCE > 15%, ROE > 15%, Piotroski Score ≥ 5")
 
         def get_fundamentally_qualified_stocks():
             qualified = []
@@ -1846,19 +1847,20 @@ def main_app():
             progress_bar = st.progress(0, text="Scanning fundamentals...")
             for i, (name, ticker) in enumerate(ALL_STOCKS.items()):
                 progress_bar.progress((i+1)/total)
-                fund = get_fundamental_data(ticker)
-                if not fund:
+                metrics = get_fundamental_metrics(ticker)
+                if not metrics:
                     continue
-                mkt_cap = fund.get('market_cap', 0)
-                sales_gr = fund.get('sales_growth_3y', 0)
-                profit_gr = fund.get('profit_growth_3y', 0)
-                promoter = fund.get('promoter', 0)
-                roce = fund.get('roce', 0)
-                roe = fund.get('roe', 0)
+                mkt_cap = metrics['mkt_cap']
+                sales_gr = metrics['sales_gr']
+                profit_gr = metrics['profit_gr']
+                promoter = metrics['promoter']
+                roce = metrics['roce']
+                roe = metrics['roe']
                 piotroski = calculate_piotroski_score(ticker)
-                if piotroski is None:
-                    piotroski = 0
-                if (10000 < mkt_cap < 100000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski > 5):
+                if (10000 < mkt_cap < 100000 and 
+                    sales_gr > 20 and profit_gr > 20 and 
+                    promoter > 50 and roce > 15 and roe > 15 and 
+                    piotroski >= 5):
                     qualified.append({
                         'Stock': name,
                         'Mkt Cap (Cr)': round(mkt_cap, 0),
@@ -1874,16 +1876,39 @@ def main_app():
 
         with st.spinner("Fetching fundamentally qualified stocks..."):
             qualified_stocks = get_fundamentally_qualified_stocks()
-        
+
         if qualified_stocks:
             df_fund = pd.DataFrame(qualified_stocks)
             st.markdown("### ✅ Stocks Meeting Fundamental Criteria")
             st.dataframe(df_fund, use_container_width=True, hide_index=True)
 
+            # Debug expander
+            with st.expander("🔍 Debug: Fundamental Data for a Stock"):
+                debug_stock = st.selectbox("Select stock to inspect", list(ALL_STOCKS.keys()))
+                if debug_stock:
+                    ticker = ALL_STOCKS[debug_stock]
+                    fund = get_fundamental_data(ticker)
+                    if fund:
+                        metrics = get_fundamental_metrics(ticker)
+                        st.write("### Raw Metrics")
+                        st.json({
+                            'Market Cap (Cr)': metrics['mkt_cap'],
+                            'Sales Growth 3Y': fund.get('sales_growth_3y'),
+                            'Profit Growth 3Y': fund.get('profit_growth_3y'),
+                            'Promoter %': metrics['promoter'],
+                            'ROCE %': metrics['roce'],
+                            'ROE %': metrics['roe'],
+                            'Piotroski Score': calculate_piotroski_score(ticker)
+                        })
+                        st.write("### Full Info (selected fields)")
+                        st.json({k: fund.get(k) for k in ['sales_growth_3y', 'profit_growth_3y', 'roce', 'roe', 'promoter', 'market_cap', 'current_price']})
+                    else:
+                        st.error("No fundamental data available.")
+
             st.markdown("---")
             st.markdown("### 🚀 Technical Breakout Signals (Buy Alerts)")
             st.caption("Condition: Price > 20EMA, today's high > max(high of previous 2 days), today's close > max(close of previous 2 days), volume > 0.8× average volume.")
-            
+
             breakout_signals = []
             for stock in qualified_stocks:
                 name = stock['Stock']
@@ -1928,11 +1953,11 @@ def main_app():
                     'Target 1:3': round(target2, 2),
                     'Risk': round(risk, 2)
                 })
-            
+
             if breakout_signals:
                 df_signals = pd.DataFrame(breakout_signals)
                 st.dataframe(df_signals, use_container_width=True, hide_index=True)
-                
+
                 if st.button("📢 Send Alerts for All Breakout Signals", key="send_swing_alerts"):
                     sent_count = 0
                     for _, row in df_signals.iterrows():
@@ -1962,7 +1987,7 @@ def main_app():
         else:
             no_stocks_message(
                 "Swing Scanner (Fundamental + Technical)",
-                "• Market Cap: ₹10,000 Cr – ₹100,000 Cr<br>• Sales growth 3Y > 20%<br>• Profit growth 3Y > 20%<br>• Promoter holding > 50%<br>• ROCE > 15%<br>• ROE > 15%<br>• Piotroski Score > 5"
+                "• Market Cap: ₹10,000 Cr – ₹100,000 Cr<br>• Sales growth 3Y > 20%<br>• Profit growth 3Y > 20%<br>• Promoter holding > 50%<br>• ROCE > 15%<br>• ROE > 15%<br>• Piotroski Score ≥ 5"
             )
     # ------------------------------
     # HOLDINGS SECTION
