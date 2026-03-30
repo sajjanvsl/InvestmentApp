@@ -246,7 +246,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# ALERT SYSTEM (enhanced with custom keys)
+# ALERT SYSTEM (fully functional)
 # ------------------------------
 class AlertSystem:
     def __init__(self):
@@ -1348,6 +1348,29 @@ def main_app():
             swing_df = swing_df[[col for col in display_cols if col in swing_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df, width='stretch')
+            
+            # Auto-alerts for fresh swing signals
+            for sig in swing_data:
+                if sig.get('Fresh') == '✅ Fresh':
+                    stock = sig['Stock']
+                    entry = sig['Entry']
+                    target = sig['Target']
+                    stop_loss = sig['Stop Loss']
+                    key = f"swing_signal_{stock}"
+                    if st.session_state.alert_system.should_send_alert(key):
+                        target_zone = f"Entry: ₹{entry}, Target: ₹{target}, SL: ₹{stop_loss}"
+                        if st.session_state.get('telegram_enabled', False):
+                            st.session_state.alert_system.send_telegram_alert(
+                                stock, entry, target, 
+                                signal_type="Swing Buy Signal",
+                                target_zone=target_zone
+                            )
+                        if st.session_state.get('email_enabled', False):
+                            st.session_state.alert_system.send_email_alert(
+                                stock, entry, target,
+                                signal_type="Swing Buy Signal",
+                                target_zone=target_zone
+                            )
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
 
