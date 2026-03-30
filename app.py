@@ -1834,52 +1834,38 @@ def main_app():
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
-           # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
+            # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
     with tab4:
         st.markdown("## 📈 Stocks Meeting All Fundamental Criteria")
         st.caption("**Filters:** Market Cap ₹10,000 Cr – ₹100,000 Cr, Sales growth 3Y > 20%, Profit growth 3Y > 20%, Promoter holding > 50%, ROCE > 15%, ROE > 15%, Piotroski Score ≥ 5")
 
-        # --- Helper function to get reliable fundamental metrics ---
+        # --- Helper function to get reliable fundamental metrics (same as before) ---
         def get_fundamental_metrics(ticker):
-            """Return a dictionary of key fundamental metrics with fallbacks."""
             fund = get_fundamental_data(ticker)
             if not fund:
                 return None
-
-            # Market cap in crores
             mkt_cap = fund.get('market_cap', 0)
-
-            # Sales growth – use 5y if 3y missing
             sales_gr = fund.get('sales_growth_3y')
             if pd.isna(sales_gr):
                 sales_gr = fund.get('sales_growth_5y')
             if pd.isna(sales_gr):
                 sales_gr = 0
-
-            # Profit growth – use 5y if 3y missing
             profit_gr = fund.get('profit_growth_3y')
             if pd.isna(profit_gr):
                 profit_gr = fund.get('profit_growth_5y')
             if pd.isna(profit_gr):
                 profit_gr = 0
-
-            # Promoter holding – try alternative fields
             promoter = fund.get('promoter')
             if pd.isna(promoter):
                 promoter = fund.get('info', {}).get('heldPercentInsiders', 0)
             if pd.isna(promoter):
                 promoter = 0
-
-            # ROCE
             roce = fund.get('roce')
             if pd.isna(roce):
                 roce = 0
-
-            # ROE
             roe = fund.get('roe')
             if pd.isna(roe):
                 roe = 0
-
             return {
                 'mkt_cap': mkt_cap,
                 'sales_gr': sales_gr,
@@ -1889,19 +1875,15 @@ def main_app():
                 'roe': roe
             }
 
-        # --- Helper function to compute Piotroski score (already defined elsewhere, but we include it here for completeness) ---
-        # If you already have a Piotroski function, you can skip this definition.
-        # The one below is a simplified version that returns 0 if insufficient data.
+        # --- Piotroski function (same as before, but we'll reuse if defined elsewhere) ---
         def calculate_piotroski_score(ticker):
             try:
                 t = yf.Ticker(ticker)
                 financials = t.financials
                 balance = t.balance_sheet
                 cashflow = t.cashflow
-
                 if financials.empty or balance.empty or cashflow.empty:
                     return 0
-
                 def get_series(df, key):
                     if df is not None and key in df.index:
                         vals = df.loc[key]
@@ -1909,25 +1891,21 @@ def main_app():
                             vals = vals[vals.notna()]
                             return vals
                     return pd.Series(dtype=float)
-
                 net_income = get_series(financials, 'Net Income')
                 if len(net_income) < 1:
                     return 0
                 net_income_cur = net_income.iloc[0]
                 net_income_prev = net_income.iloc[1] if len(net_income) > 1 else np.nan
-
                 ocf = get_series(cashflow, 'Operating Cash Flow')
                 if len(ocf) < 1:
                     return 0
                 ocf_cur = ocf.iloc[0]
                 ocf_prev = ocf.iloc[1] if len(ocf) > 1 else np.nan
-
                 total_assets = get_series(balance, 'Total Assets')
                 if len(total_assets) < 1:
                     return 0
                 ta_cur = total_assets.iloc[0]
                 ta_prev = total_assets.iloc[1] if len(total_assets) > 1 else np.nan
-
                 current_assets = get_series(balance, 'Current Assets')
                 current_liabilities = get_series(balance, 'Current Liabilities')
                 if len(current_assets) > 0 and len(current_liabilities) > 0:
@@ -1935,11 +1913,9 @@ def main_app():
                     cr_prev = (current_assets.iloc[1] / current_liabilities.iloc[1]) if len(current_assets) > 1 and len(current_liabilities) > 1 and current_liabilities.iloc[1] != 0 else np.nan
                 else:
                     cr_cur = cr_prev = np.nan
-
                 ltd = get_series(balance, 'Long Term Debt')
                 ltd_cur = ltd.iloc[0] if len(ltd) > 0 else np.nan
                 ltd_prev = ltd.iloc[1] if len(ltd) > 1 else np.nan
-
                 gross_profit = get_series(financials, 'Gross Profit')
                 revenue = get_series(financials, 'Total Revenue')
                 if len(gross_profit) > 0 and len(revenue) > 0:
@@ -1947,10 +1923,8 @@ def main_app():
                     gm_prev = (gross_profit.iloc[1] / revenue.iloc[1]) if len(gross_profit) > 1 and len(revenue) > 1 and revenue.iloc[1] != 0 else np.nan
                 else:
                     gm_cur = gm_prev = np.nan
-
                 at_cur = revenue.iloc[0] / ta_cur if len(revenue) > 0 and ta_cur != 0 else np.nan
                 at_prev = revenue.iloc[1] / ta_prev if len(revenue) > 1 and ta_prev != 0 else np.nan
-
                 score = 0
                 if net_income_cur > 0:
                     score += 1
@@ -1976,15 +1950,28 @@ def main_app():
             except Exception:
                 return 0
 
-        # --- Main scanning function ---
-        def get_fundamentally_qualified_stocks():
+        # --- Main scanning function with debug output ---
+        def scan_fundamentals(debug_mode=False):
             qualified = []
+            debug_data = []
             total = len(ALL_STOCKS)
             progress_bar = st.progress(0, text="Scanning fundamentals...")
             for i, (name, ticker) in enumerate(ALL_STOCKS.items()):
                 progress_bar.progress((i+1)/total)
                 metrics = get_fundamental_metrics(ticker)
                 if not metrics:
+                    if debug_mode:
+                        debug_data.append({
+                            'Stock': name,
+                            'Status': 'No fundamental data',
+                            'Mkt Cap': 'N/A',
+                            'Sales Gr%': 'N/A',
+                            'Profit Gr%': 'N/A',
+                            'Promoter %': 'N/A',
+                            'ROCE %': 'N/A',
+                            'ROE %': 'N/A',
+                            'Piotroski': 'N/A'
+                        })
                     continue
                 mkt_cap = metrics['mkt_cap']
                 sales_gr = metrics['sales_gr']
@@ -1993,6 +1980,20 @@ def main_app():
                 roce = metrics['roce']
                 roe = metrics['roe']
                 piotroski = calculate_piotroski_score(ticker)
+                # Collect all metrics for debug
+                if debug_mode:
+                    debug_data.append({
+                        'Stock': name,
+                        'Status': 'Pass' if (10000 < mkt_cap < 100000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski >= 5) else 'Fail',
+                        'Mkt Cap': round(mkt_cap, 0) if mkt_cap != 0 else 'Missing',
+                        'Sales Gr%': round(sales_gr, 1) if sales_gr != 0 else 'Missing',
+                        'Profit Gr%': round(profit_gr, 1) if profit_gr != 0 else 'Missing',
+                        'Promoter %': round(promoter, 1) if promoter != 0 else 'Missing',
+                        'ROCE %': round(roce, 1) if roce != 0 else 'Missing',
+                        'ROE %': round(roe, 1) if roe != 0 else 'Missing',
+                        'Piotroski': piotroski if piotroski != 0 else 'Missing'
+                    })
+                # Check if qualifies
                 if (10000 < mkt_cap < 100000 and 
                     sales_gr > 20 and profit_gr > 20 and 
                     promoter > 50 and roce > 15 and roe > 15 and 
@@ -2008,41 +2009,49 @@ def main_app():
                         'Piotroski': piotroski
                     })
             progress_bar.empty()
-            return qualified
+            return qualified, debug_data
 
-        # --- Run the scanner and display results ---
+        # --- Run scanner ---
         with st.spinner("Fetching fundamentally qualified stocks..."):
-            qualified_stocks = get_fundamentally_qualified_stocks()
+            qualified_stocks, debug_data = scan_fundamentals(debug_mode=True)
 
         if qualified_stocks:
             df_fund = pd.DataFrame(qualified_stocks)
             st.dataframe(df_fund, use_container_width=True, hide_index=True)
-
-            # Optional: Debug expander to inspect individual stock data
-            with st.expander("🔍 Debug: Fundamental Data for a Stock"):
-                debug_stock = st.selectbox("Select stock to inspect", list(ALL_STOCKS.keys()))
-                if debug_stock:
-                    ticker = ALL_STOCKS[debug_stock]
-                    fund = get_fundamental_data(ticker)
-                    if fund:
-                        metrics = get_fundamental_metrics(ticker)
-                        st.write("### Raw Metrics")
-                        st.json({
-                            'Market Cap (Cr)': metrics['mkt_cap'],
-                            'Sales Growth 3Y': fund.get('sales_growth_3y'),
-                            'Profit Growth 3Y': fund.get('profit_growth_3y'),
-                            'Promoter %': metrics['promoter'],
-                            'ROCE %': metrics['roce'],
-                            'ROE %': metrics['roe'],
-                            'Piotroski Score': calculate_piotroski_score(ticker)
-                        })
-                    else:
-                        st.error("No fundamental data available.")
         else:
-            no_stocks_message(
-                "Fundamental Screener",
-                "• Market Cap: ₹10,000 Cr – ₹100,000 Cr<br>• Sales growth 3Y > 20%<br>• Profit growth 3Y > 20%<br>• Promoter holding > 50%<br>• ROCE > 15%<br>• ROE > 15%<br>• Piotroski Score ≥ 5"
-            )
+            st.info("No stocks passed all filters. Use the debug table below to see why each stock failed.")
+
+        # --- Debug table ---
+        with st.expander("🔍 Debug: Why stocks are failing"):
+            if debug_data:
+                df_debug = pd.DataFrame(debug_data)
+                st.dataframe(df_debug, use_container_width=True, hide_index=True)
+                st.caption("'Missing' indicates the data was not available from Yahoo Finance.")
+            else:
+                st.write("No debug data available.")
+
+        # --- Additional manual debug for a specific stock ---
+        with st.expander("🔍 Manual Debug: Inspect a single stock"):
+            debug_stock = st.selectbox("Select stock to inspect", list(ALL_STOCKS.keys()))
+            if debug_stock:
+                ticker = ALL_STOCKS[debug_stock]
+                fund = get_fundamental_data(ticker)
+                if fund:
+                    metrics = get_fundamental_metrics(ticker)
+                    st.write("### Raw Metrics")
+                    st.json({
+                        'Market Cap (Cr)': metrics['mkt_cap'],
+                        'Sales Growth 3Y': fund.get('sales_growth_3y'),
+                        'Profit Growth 3Y': fund.get('profit_growth_3y'),
+                        'Promoter %': metrics['promoter'],
+                        'ROCE %': metrics['roce'],
+                        'ROE %': metrics['roe'],
+                        'Piotroski Score': calculate_piotroski_score(ticker)
+                    })
+                    st.write("### Full Info (selected fields)")
+                    st.json({k: fund.get(k) for k in ['sales_growth_3y', 'profit_growth_3y', 'roce', 'roe', 'promoter', 'market_cap', 'current_price']})
+                else:
+                    st.error("No fundamental data available.")
     # ------------------------------
     # HOLDINGS SECTION
     # ------------------------------
