@@ -1835,13 +1835,12 @@ def main_app():
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
        # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
+      # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
     with tab4:
         st.markdown("## 📈 Swing Scanner (Fundamental + Technical)")
         st.caption("**Step 1:** Stocks meeting all fundamental filters. **Step 2:** Among them, those with a 3‑day high breakout trigger a buy signal.")
 
-        # Define fundamental criteria
         def get_fundamentally_qualified_stocks():
-            """Returns list of stocks that pass all fundamental filters."""
             qualified = []
             total = len(ALL_STOCKS)
             progress_bar = st.progress(0, text="Scanning fundamentals...")
@@ -1873,7 +1872,6 @@ def main_app():
             progress_bar.empty()
             return qualified
 
-        # Step 1: display fundamentally qualified stocks
         with st.spinner("Fetching fundamentally qualified stocks..."):
             qualified_stocks = get_fundamentally_qualified_stocks()
         
@@ -1882,7 +1880,6 @@ def main_app():
             st.markdown("### ✅ Stocks Meeting Fundamental Criteria")
             st.dataframe(df_fund, use_container_width=True, hide_index=True)
 
-            # Step 2: apply technical breakout to these stocks
             st.markdown("---")
             st.markdown("### 🚀 Technical Breakout Signals (Buy Alerts)")
             st.caption("Condition: Price > 20EMA, today's high > max(high of previous 2 days), today's close > max(close of previous 2 days), volume > 0.8× average volume.")
@@ -1936,7 +1933,6 @@ def main_app():
                 df_signals = pd.DataFrame(breakout_signals)
                 st.dataframe(df_signals, use_container_width=True, hide_index=True)
                 
-                # Button to send alerts for all breakout signals
                 if st.button("📢 Send Alerts for All Breakout Signals", key="send_swing_alerts"):
                     sent_count = 0
                     for _, row in df_signals.iterrows():
