@@ -1834,13 +1834,149 @@ def main_app():
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
-       # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
-         # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
+           # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
     with tab4:
-        st.markdown("## 📈 Swing Scanner (Fundamental + Technical)")
-        st.caption("**Step 1:** Stocks meeting all fundamental filters. **Step 2:** Among them, those with a 3‑day high breakout trigger a buy signal.")
+        st.markdown("## 📈 Stocks Meeting All Fundamental Criteria")
         st.caption("**Filters:** Market Cap ₹10,000 Cr – ₹100,000 Cr, Sales growth 3Y > 20%, Profit growth 3Y > 20%, Promoter holding > 50%, ROCE > 15%, ROE > 15%, Piotroski Score ≥ 5")
 
+        # --- Helper function to get reliable fundamental metrics ---
+        def get_fundamental_metrics(ticker):
+            """Return a dictionary of key fundamental metrics with fallbacks."""
+            fund = get_fundamental_data(ticker)
+            if not fund:
+                return None
+
+            # Market cap in crores
+            mkt_cap = fund.get('market_cap', 0)
+
+            # Sales growth – use 5y if 3y missing
+            sales_gr = fund.get('sales_growth_3y')
+            if pd.isna(sales_gr):
+                sales_gr = fund.get('sales_growth_5y')
+            if pd.isna(sales_gr):
+                sales_gr = 0
+
+            # Profit growth – use 5y if 3y missing
+            profit_gr = fund.get('profit_growth_3y')
+            if pd.isna(profit_gr):
+                profit_gr = fund.get('profit_growth_5y')
+            if pd.isna(profit_gr):
+                profit_gr = 0
+
+            # Promoter holding – try alternative fields
+            promoter = fund.get('promoter')
+            if pd.isna(promoter):
+                promoter = fund.get('info', {}).get('heldPercentInsiders', 0)
+            if pd.isna(promoter):
+                promoter = 0
+
+            # ROCE
+            roce = fund.get('roce')
+            if pd.isna(roce):
+                roce = 0
+
+            # ROE
+            roe = fund.get('roe')
+            if pd.isna(roe):
+                roe = 0
+
+            return {
+                'mkt_cap': mkt_cap,
+                'sales_gr': sales_gr,
+                'profit_gr': profit_gr,
+                'promoter': promoter,
+                'roce': roce,
+                'roe': roe
+            }
+
+        # --- Helper function to compute Piotroski score (already defined elsewhere, but we include it here for completeness) ---
+        # If you already have a Piotroski function, you can skip this definition.
+        # The one below is a simplified version that returns 0 if insufficient data.
+        def calculate_piotroski_score(ticker):
+            try:
+                t = yf.Ticker(ticker)
+                financials = t.financials
+                balance = t.balance_sheet
+                cashflow = t.cashflow
+
+                if financials.empty or balance.empty or cashflow.empty:
+                    return 0
+
+                def get_series(df, key):
+                    if df is not None and key in df.index:
+                        vals = df.loc[key]
+                        if isinstance(vals, pd.Series):
+                            vals = vals[vals.notna()]
+                            return vals
+                    return pd.Series(dtype=float)
+
+                net_income = get_series(financials, 'Net Income')
+                if len(net_income) < 1:
+                    return 0
+                net_income_cur = net_income.iloc[0]
+                net_income_prev = net_income.iloc[1] if len(net_income) > 1 else np.nan
+
+                ocf = get_series(cashflow, 'Operating Cash Flow')
+                if len(ocf) < 1:
+                    return 0
+                ocf_cur = ocf.iloc[0]
+                ocf_prev = ocf.iloc[1] if len(ocf) > 1 else np.nan
+
+                total_assets = get_series(balance, 'Total Assets')
+                if len(total_assets) < 1:
+                    return 0
+                ta_cur = total_assets.iloc[0]
+                ta_prev = total_assets.iloc[1] if len(total_assets) > 1 else np.nan
+
+                current_assets = get_series(balance, 'Current Assets')
+                current_liabilities = get_series(balance, 'Current Liabilities')
+                if len(current_assets) > 0 and len(current_liabilities) > 0:
+                    cr_cur = current_assets.iloc[0] / current_liabilities.iloc[0] if current_liabilities.iloc[0] != 0 else np.nan
+                    cr_prev = (current_assets.iloc[1] / current_liabilities.iloc[1]) if len(current_assets) > 1 and len(current_liabilities) > 1 and current_liabilities.iloc[1] != 0 else np.nan
+                else:
+                    cr_cur = cr_prev = np.nan
+
+                ltd = get_series(balance, 'Long Term Debt')
+                ltd_cur = ltd.iloc[0] if len(ltd) > 0 else np.nan
+                ltd_prev = ltd.iloc[1] if len(ltd) > 1 else np.nan
+
+                gross_profit = get_series(financials, 'Gross Profit')
+                revenue = get_series(financials, 'Total Revenue')
+                if len(gross_profit) > 0 and len(revenue) > 0:
+                    gm_cur = gross_profit.iloc[0] / revenue.iloc[0] if revenue.iloc[0] != 0 else np.nan
+                    gm_prev = (gross_profit.iloc[1] / revenue.iloc[1]) if len(gross_profit) > 1 and len(revenue) > 1 and revenue.iloc[1] != 0 else np.nan
+                else:
+                    gm_cur = gm_prev = np.nan
+
+                at_cur = revenue.iloc[0] / ta_cur if len(revenue) > 0 and ta_cur != 0 else np.nan
+                at_prev = revenue.iloc[1] / ta_prev if len(revenue) > 1 and ta_prev != 0 else np.nan
+
+                score = 0
+                if net_income_cur > 0:
+                    score += 1
+                if ocf_cur > 0:
+                    score += 1
+                roa_cur = net_income_cur / ta_cur if ta_cur != 0 else np.nan
+                roa_prev = net_income_prev / ta_prev if not pd.isna(net_income_prev) and ta_prev != 0 else np.nan
+                if not pd.isna(roa_cur) and not pd.isna(roa_prev) and roa_cur > roa_prev:
+                    score += 1
+                if not pd.isna(ocf_cur) and not pd.isna(net_income_cur) and ocf_cur > net_income_cur:
+                    score += 1
+                debt_assets_cur = ltd_cur / ta_cur if not pd.isna(ltd_cur) and ta_cur != 0 else np.nan
+                debt_assets_prev = ltd_prev / ta_prev if not pd.isna(ltd_prev) and ta_prev != 0 else np.nan
+                if not pd.isna(debt_assets_cur) and not pd.isna(debt_assets_prev) and debt_assets_cur < debt_assets_prev:
+                    score += 1
+                if not pd.isna(cr_cur) and not pd.isna(cr_prev) and cr_cur > cr_prev:
+                    score += 1
+                if not pd.isna(gm_cur) and not pd.isna(gm_prev) and gm_cur > gm_prev:
+                    score += 1
+                if not pd.isna(at_cur) and not pd.isna(at_prev) and at_cur > at_prev:
+                    score += 1
+                return score
+            except Exception:
+                return 0
+
+        # --- Main scanning function ---
         def get_fundamentally_qualified_stocks():
             qualified = []
             total = len(ALL_STOCKS)
@@ -1874,15 +2010,15 @@ def main_app():
             progress_bar.empty()
             return qualified
 
+        # --- Run the scanner and display results ---
         with st.spinner("Fetching fundamentally qualified stocks..."):
             qualified_stocks = get_fundamentally_qualified_stocks()
 
         if qualified_stocks:
             df_fund = pd.DataFrame(qualified_stocks)
-            st.markdown("### ✅ Stocks Meeting Fundamental Criteria")
             st.dataframe(df_fund, use_container_width=True, hide_index=True)
 
-            # Debug expander
+            # Optional: Debug expander to inspect individual stock data
             with st.expander("🔍 Debug: Fundamental Data for a Stock"):
                 debug_stock = st.selectbox("Select stock to inspect", list(ALL_STOCKS.keys()))
                 if debug_stock:
@@ -1900,93 +2036,11 @@ def main_app():
                             'ROE %': metrics['roe'],
                             'Piotroski Score': calculate_piotroski_score(ticker)
                         })
-                        st.write("### Full Info (selected fields)")
-                        st.json({k: fund.get(k) for k in ['sales_growth_3y', 'profit_growth_3y', 'roce', 'roe', 'promoter', 'market_cap', 'current_price']})
                     else:
                         st.error("No fundamental data available.")
-
-            st.markdown("---")
-            st.markdown("### 🚀 Technical Breakout Signals (Buy Alerts)")
-            st.caption("Condition: Price > 20EMA, today's high > max(high of previous 2 days), today's close > max(close of previous 2 days), volume > 0.8× average volume.")
-
-            breakout_signals = []
-            for stock in qualified_stocks:
-                name = stock['Stock']
-                ticker = ALL_STOCKS.get(name)
-                df = get_price_data(ticker)
-                if df.empty or len(df) < 30:
-                    continue
-                close = df['Close']
-                high = df['High']
-                low = df['Low']
-                volume = df['Volume']
-
-                ema20 = close.ewm(span=20, adjust=False).mean()
-                last_price = close.iloc[-1]
-                last_ema20 = ema20.iloc[-1]
-
-                if last_price <= last_ema20:
-                    continue
-
-                if len(close) < 3:
-                    continue
-                prev_2_high_max = max(high.iloc[-3:-1])
-                prev_2_close_max = max(close.iloc[-3:-1])
-                if not (high.iloc[-1] > prev_2_high_max and close.iloc[-1] > prev_2_close_max):
-                    continue
-
-                avg_vol = volume.rolling(20).mean().iloc[-1]
-                if volume.iloc[-1] < 0.8 * avg_vol:
-                    continue
-
-                entry = close.iloc[-1]
-                sl = low.iloc[-2]
-                risk = entry - sl
-                target1 = entry + 2 * risk
-                target2 = entry + 3 * risk
-
-                breakout_signals.append({
-                    'Stock': name,
-                    'Price': round(entry, 2),
-                    'SL': round(sl, 2),
-                    'Target 1:2': round(target1, 2),
-                    'Target 1:3': round(target2, 2),
-                    'Risk': round(risk, 2)
-                })
-
-            if breakout_signals:
-                df_signals = pd.DataFrame(breakout_signals)
-                st.dataframe(df_signals, use_container_width=True, hide_index=True)
-
-                if st.button("📢 Send Alerts for All Breakout Signals", key="send_swing_alerts"):
-                    sent_count = 0
-                    for _, row in df_signals.iterrows():
-                        stock = row['Stock']
-                        price = row['Price']
-                        target1 = row['Target 1:2']
-                        target2 = row['Target 1:3']
-                        key = f"swing_signal_{stock}"
-                        if st.session_state.alert_system.should_send_alert(key):
-                            target_zone = f"Target 1: ₹{target1} (1:2), Target 2: ₹{target2} (1:3)"
-                            if st.session_state.get('telegram_enabled', False):
-                                st.session_state.alert_system.send_telegram_alert(
-                                    stock, price, target1,
-                                    signal_type="Swing Buy Signal",
-                                    target_zone=target_zone
-                                )
-                            if st.session_state.get('email_enabled', False):
-                                st.session_state.alert_system.send_email_alert(
-                                    stock, price, target1,
-                                    signal_type="Swing Buy Signal",
-                                    target_zone=target_zone
-                                )
-                            sent_count += 1
-                    st.success(f"Sent {sent_count} alerts.")
-            else:
-                st.info("No technical breakout signals among the fundamentally qualified stocks.")
         else:
             no_stocks_message(
-                "Swing Scanner (Fundamental + Technical)",
+                "Fundamental Screener",
                 "• Market Cap: ₹10,000 Cr – ₹100,000 Cr<br>• Sales growth 3Y > 20%<br>• Profit growth 3Y > 20%<br>• Promoter holding > 50%<br>• ROCE > 15%<br>• ROE > 15%<br>• Piotroski Score ≥ 5"
             )
     # ------------------------------
