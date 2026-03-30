@@ -1834,53 +1834,140 @@ def main_app():
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
-    # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
+       # ----- Tab 4: Swing Scanner (Fundamental + Technical) -----
     with tab4:
         st.markdown("## 📈 Swing Scanner (Fundamental + Technical)")
-        st.caption("Stocks meeting strong fundamentals and a 3‑day breakout pattern. Automatically sends Telegram alerts for new signals.")
+        st.caption("**Step 1:** Stocks meeting all fundamental filters. **Step 2:** Among them, those with a 3‑day high breakout trigger a buy signal.")
+
+        # Define fundamental criteria
+        def get_fundamentally_qualified_stocks():
+            """Returns list of stocks that pass all fundamental filters."""
+            qualified = []
+            total = len(ALL_STOCKS)
+            progress_bar = st.progress(0, text="Scanning fundamentals...")
+            for i, (name, ticker) in enumerate(ALL_STOCKS.items()):
+                progress_bar.progress((i+1)/total)
+                fund = get_fundamental_data(ticker)
+                if not fund:
+                    continue
+                mkt_cap = fund.get('market_cap', 0)
+                sales_gr = fund.get('sales_growth_3y', 0)
+                profit_gr = fund.get('profit_growth_3y', 0)
+                promoter = fund.get('promoter', 0)
+                roce = fund.get('roce', 0)
+                roe = fund.get('roe', 0)
+                piotroski = calculate_piotroski_score(ticker)
+                if piotroski is None:
+                    piotroski = 0
+                if (10000 < mkt_cap < 100000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski > 5):
+                    qualified.append({
+                        'Stock': name,
+                        'Mkt Cap (Cr)': round(mkt_cap, 0),
+                        'Sales Gr%': round(sales_gr, 1),
+                        'Profit Gr%': round(profit_gr, 1),
+                        'Promoter %': round(promoter, 1),
+                        'ROCE %': round(roce, 1),
+                        'ROE %': round(roe, 1),
+                        'Piotroski': piotroski
+                    })
+            progress_bar.empty()
+            return qualified
+
+        # Step 1: display fundamentally qualified stocks
+        with st.spinner("Fetching fundamentally qualified stocks..."):
+            qualified_stocks = get_fundamentally_qualified_stocks()
         
-        # Run scanner
-        with st.spinner("Scanning for stocks meeting both fundamental and technical criteria..."):
-            signals = swing_scanner_fundamental_technical()
-        
-        if signals:
-            df_signals = pd.DataFrame(signals)
-            st.dataframe(df_signals, use_container_width=True, hide_index=True)
+        if qualified_stocks:
+            df_fund = pd.DataFrame(qualified_stocks)
+            st.markdown("### ✅ Stocks Meeting Fundamental Criteria")
+            st.dataframe(df_fund, use_container_width=True, hide_index=True)
+
+            # Step 2: apply technical breakout to these stocks
+            st.markdown("---")
+            st.markdown("### 🚀 Technical Breakout Signals (Buy Alerts)")
+            st.caption("Condition: Price > 20EMA, today's high > max(high of previous 2 days), today's close > max(close of previous 2 days), volume > 0.8× average volume.")
             
-            # Button to send alerts manually (in case auto didn't trigger)
-            if st.button("📢 Send Alerts for All Signals", key="send_swing_alerts"):
-                sent_count = 0
-                for _, row in df_signals.iterrows():
-                    stock = row['Stock']
-                    price = row['Price']
-                    sl = row['SL']
-                    target1 = row['Target 1:2']
-                    target2 = row['Target 1:3']
-                    key = f"swing_signal_{stock}"
-                    if st.session_state.alert_system.should_send_alert(key):
-                        target_zone = f"Target 1: ₹{target1} (1:2), Target 2: ₹{target2} (1:3)"
-                        if st.session_state.get('telegram_enabled', False):
-                            st.session_state.alert_system.send_telegram_alert(
-                                stock, price, target1, 
-                                signal_type="Swing Buy Signal", 
-                                target_zone=target_zone
-                            )
-                        if st.session_state.get('email_enabled', False):
-                            st.session_state.alert_system.send_email_alert(
-                                stock, price, target1,
-                                signal_type="Swing Buy Signal",
-                                target_zone=target_zone
-                            )
-                        sent_count += 1
-                st.success(f"Sent {sent_count} alerts.")
+            breakout_signals = []
+            for stock in qualified_stocks:
+                name = stock['Stock']
+                ticker = ALL_STOCKS.get(name)
+                df = get_price_data(ticker)
+                if df.empty or len(df) < 30:
+                    continue
+                close = df['Close']
+                high = df['High']
+                low = df['Low']
+                volume = df['Volume']
+
+                ema20 = close.ewm(span=20, adjust=False).mean()
+                last_price = close.iloc[-1]
+                last_ema20 = ema20.iloc[-1]
+
+                if last_price <= last_ema20:
+                    continue
+
+                if len(close) < 3:
+                    continue
+                prev_2_high_max = max(high.iloc[-3:-1])
+                prev_2_close_max = max(close.iloc[-3:-1])
+                if not (high.iloc[-1] > prev_2_high_max and close.iloc[-1] > prev_2_close_max):
+                    continue
+
+                avg_vol = volume.rolling(20).mean().iloc[-1]
+                if volume.iloc[-1] < 0.8 * avg_vol:
+                    continue
+
+                entry = close.iloc[-1]
+                sl = low.iloc[-2]
+                risk = entry - sl
+                target1 = entry + 2 * risk
+                target2 = entry + 3 * risk
+
+                breakout_signals.append({
+                    'Stock': name,
+                    'Price': round(entry, 2),
+                    'SL': round(sl, 2),
+                    'Target 1:2': round(target1, 2),
+                    'Target 1:3': round(target2, 2),
+                    'Risk': round(risk, 2)
+                })
+            
+            if breakout_signals:
+                df_signals = pd.DataFrame(breakout_signals)
+                st.dataframe(df_signals, use_container_width=True, hide_index=True)
+                
+                # Button to send alerts for all breakout signals
+                if st.button("📢 Send Alerts for All Breakout Signals", key="send_swing_alerts"):
+                    sent_count = 0
+                    for _, row in df_signals.iterrows():
+                        stock = row['Stock']
+                        price = row['Price']
+                        target1 = row['Target 1:2']
+                        target2 = row['Target 1:3']
+                        key = f"swing_signal_{stock}"
+                        if st.session_state.alert_system.should_send_alert(key):
+                            target_zone = f"Target 1: ₹{target1} (1:2), Target 2: ₹{target2} (1:3)"
+                            if st.session_state.get('telegram_enabled', False):
+                                st.session_state.alert_system.send_telegram_alert(
+                                    stock, price, target1,
+                                    signal_type="Swing Buy Signal",
+                                    target_zone=target_zone
+                                )
+                            if st.session_state.get('email_enabled', False):
+                                st.session_state.alert_system.send_email_alert(
+                                    stock, price, target1,
+                                    signal_type="Swing Buy Signal",
+                                    target_zone=target_zone
+                                )
+                            sent_count += 1
+                    st.success(f"Sent {sent_count} alerts.")
+            else:
+                st.info("No technical breakout signals among the fundamentally qualified stocks.")
         else:
             no_stocks_message(
                 "Swing Scanner (Fundamental + Technical)",
-                "• Market Cap > 10,000 Cr<br>• Sales growth 3Y > 20%<br>• Profit growth 3Y > 20%<br>• Promoter holding > 50%<br>• ROCE > 15%<br>• ROE > 15%<br>• Piotroski Score > 5<br>• Price > 20 EMA<br>• 3‑day high breakout (high > previous 2 days high, close > previous 2 days close)"
+                "• Market Cap: ₹10,000 Cr – ₹100,000 Cr<br>• Sales growth 3Y > 20%<br>• Profit growth 3Y > 20%<br>• Promoter holding > 50%<br>• ROCE > 15%<br>• ROE > 15%<br>• Piotroski Score > 5"
             )
-
-    st.markdown("---")
-
     # ------------------------------
     # HOLDINGS SECTION
     # ------------------------------
