@@ -1,3 +1,4 @@
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -642,329 +643,6 @@ def get_fundamental_data(ticker):
         cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
         roce_values = []
         for i in range(min(len(ebit_series), len(ta_series), len(cl_series))):
-            ebit = ebi        if not st.session_state.get('telegram_enabled', False):
-            return False
-            
-        bot_token = st.session_state.get('telegram_bot_token', '')
-        chat_id = st.session_state.get('telegram_chat_id', '')
-        
-        if not all([bot_token, chat_id]):
-            return False
-            
-        message = f"""🚨 {signal_type} ALERT: {stock_name}
-
-Current Price: ₹{current_price:.2f}
-Target Zone: {target_zone}
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-This is an automated alert from Quant Fund Manager."""
-        
-        try:
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            payload = {
-                'chat_id': chat_id,
-                'text': message
-            }
-            response = requests.post(url, json=payload)
-            if response.status_code == 200:
-                return True
-            else:
-                st.error(f"Telegram error: {response.text}")
-                return False
-        except Exception as e:
-            st.error(f"Telegram failed: {str(e)}")
-            return False
-    
-    def check_and_send_alerts(self, stock_name, current_price, target_prices):
-        alerts_sent = []
-        for target_price in target_prices:
-            key = f"price_target_{stock_name}_{target_price}"
-            if self.should_send_alert(key):
-                if st.session_state.get('email_enabled', False):
-                    if self.send_email_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
-                        alerts_sent.append(f"Email at ₹{target_price:.2f}")
-                if st.session_state.get('telegram_enabled', False):
-                    if self.send_telegram_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
-                        alerts_sent.append(f"Telegram at ₹{target_price:.2f}")
-        return alerts_sent
-
-# ------------------------------
-# SETTINGS PERSISTENCE
-# ------------------------------
-SETTINGS_FILE = "settings.json"
-
-def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return {
-        "email_enabled": False,
-        "email_sender": "",
-        "email_password": "",
-        "email_recipient": "sajjanvsl@gmail.com",
-        "telegram_enabled": False,
-        "telegram_bot_token": "",
-        "telegram_chat_id": ""
-    }
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f, indent=2)
-
-# ------------------------------
-# AUTHENTICATION FUNCTIONS
-# ------------------------------
-USERS_FILE = "users.json"
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def load_users():
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    else:
-        default_users = {
-            "admin": hash_password("admin123")
-        }
-        with open(USERS_FILE, 'w') as f:
-            json.dump(default_users, f)
-        return default_users
-
-def save_users(users):
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f)
-
-def check_login(username, password):
-    users = load_users()
-    if username in users and users[username] == hash_password(password):
-        return True
-    return False
-
-def reset_password(username, new_password):
-    users = load_users()
-    if username in users:
-        users[username] = hash_password(new_password)
-        save_users(users)
-        return True
-    return False
-
-# Initialize session state for authentication
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'username' not in st.session_state:
-    st.session_state.username = None
-
-# ------------------------------
-# MASTER STOCK LIST (all NSE stocks)
-# ------------------------------
-ALL_STOCKS = {
-    "CIPLA": "CIPLA.NS",
-    "ICICIAMC": "ICICIAMC.NS",
-    "GANESHHOU": "GANESHHOU.NS",
-    "TCS": "TCS.NS",
-    "MON100": "MON100.NS",
-    "BSE": "BSE.NS",
-    "TMCV": "TMCV.NS",
-    "IRCTC": "IRCTC.NS",
-    "SILVERBEES": "SILVERBEES.NS",
-    "HDFCBANK": "HDFCBANK.NS",
-    "HAL": "HAL.NS",
-    "VBL": "VBL.NS",
-    "MAZDOCK": "MAZDOCK.NS",
-    "ADANIPORTS": "ADANIPORTS.NS",
-    "TRENT": "TRENT.NS",
-    "GOLDBEES": "GOLDBEES.NS",
-    "LIQUIDBEES": "LIQUIDBEES.NS",
-    "SMALL250": "SMALL250.NS",
-    "ASTRAL": "ASTRAL.NS",
-    "TRUALT": "TRUALT.NS",
-    "TMPV": "TMPV.NS",
-    "IREDA": "IREDA.NS",
-    "ANANTRAJ": "ANANTRAJ.NS",
-    "WAAREEENER": "WAAREEENER.NS",
-    "BAJAJHFL": "BAJAJHFL.NS",
-    "JIOFIN": "JIOFIN.NS",
-    "NHPC": "NHPC.NS",
-    "AWHCL": "AWHCL.NS",
-    "ECORECO": "ECORECO.NS",
-    "EPACKPEB": "EPACKPEB.NS",
-    "NATPLASTI": "NATPLASTI.NS",
-    "SETL": "SETL.NS",
-    "TDPOWERSYS": "TDPOWERSYS.NS",
-    "MCX": "MCX.NS"
-}
-
-# ------------------------------
-# DATA FETCHING FUNCTIONS
-# ------------------------------
-def debug_data_fetch(ticker):
-    try:
-        df = yf.download(ticker, period="5d", interval="1d", progress=False)
-        if df.empty:
-            return "❌ No data"
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        close = df['Close'].squeeze()
-        if isinstance(close, pd.Series):
-            last_close = close.iloc[-1]
-        else:
-            last_close = close
-        return f"✅ Data shape: {df.shape}, Last close: {last_close:.2f}"
-    except Exception as e:
-        return f"❌ Error: {str(e)}"
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def get_price_data(ticker):
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
-            if df.empty:
-                if attempt == max_retries - 1:
-                    return pd.DataFrame()
-                time.sleep(2)
-                continue
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.dropna(inplace=True)
-            return df
-        except Exception:
-            if attempt == max_retries - 1:
-                return pd.DataFrame()
-            time.sleep(2)
-    return pd.DataFrame()
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_intraday_data(ticker):
-    max_retries = 2
-    for attempt in range(max_retries):
-        try:
-            df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
-            if df.empty:
-                return pd.DataFrame()
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.dropna(inplace=True)
-            return df
-        except Exception:
-            if attempt == max_retries - 1:
-                return pd.DataFrame()
-            time.sleep(1)
-    return pd.DataFrame()
-
-# ------------------------------
-# DATA PERSISTENCE
-# ------------------------------
-HOLDINGS_FILE = "holdings_data.json"
-SOLD_FILE = "sold_history.json"
-TARGET_PRICES_FILE = "target_prices.json"
-
-def load_holdings():
-    if os.path.exists(HOLDINGS_FILE):
-        try:
-            with open(HOLDINGS_FILE, 'r') as f:
-                data = json.load(f)
-            if data:
-                return pd.DataFrame(data)
-        except:
-            pass
-    return None
-
-def save_holdings(df):
-    if df is not None and not df.empty:
-        records = df.to_dict(orient='records')
-        with open(HOLDINGS_FILE, 'w') as f:
-            json.dump(records, f, indent=2)
-    else:
-        if os.path.exists(HOLDINGS_FILE):
-            os.remove(HOLDINGS_FILE)
-
-def load_sold():
-    if os.path.exists(SOLD_FILE):
-        try:
-            with open(SOLD_FILE, 'r') as f:
-                data = json.load(f)
-            if data:
-                return pd.DataFrame(data)
-        except:
-            pass
-    return pd.DataFrame(columns=['Stock', 'Qty', 'Avg Price', 'Sell Price', 'Sell Date', 'P&L'])
-
-def save_sold(df):
-    if df is not None and not df.empty:
-        records = df.to_dict(orient='records')
-        with open(SOLD_FILE, 'w') as f:
-            json.dump(records, f, indent=2)
-    else:
-        if os.path.exists(SOLD_FILE):
-            os.remove(SOLD_FILE)
-
-def load_target_prices():
-    if os.path.exists(TARGET_PRICES_FILE):
-        try:
-            with open(TARGET_PRICES_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return {}
-
-def save_target_prices(target_dict):
-    with open(TARGET_PRICES_FILE, 'w') as f:
-        json.dump(target_dict, f, indent=2)
-
-# ------------------------------
-# FUNDAMENTAL FETCHING
-# ------------------------------
-def safe_get_series(df, key):
-    if df is not None and key in df.index:
-        vals = df.loc[key]
-        if isinstance(vals, pd.Series):
-            vals = vals[vals.notna()]
-            if len(vals) > 0:
-                return vals
-    return pd.Series(dtype=float)
-
-def cagr(series, years=5):
-    if len(series) < 2:
-        return np.nan
-    idx = min(years, len(series)-1)
-    latest = series.iloc[0]
-    past = series.iloc[idx]
-    if past == 0 or np.isnan(past):
-        return np.nan
-    return ((latest / past) ** (1/idx) - 1) * 100
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_fundamental_data(ticker):
-    try:
-        t = yf.Ticker(ticker)
-        info = t.info
-        financials = t.financials
-        balance_sheet = t.balance_sheet
-        cashflow = t.cashflow
-
-        revenue = safe_get_series(financials, 'Total Revenue')
-        sales_growth_5y = cagr(revenue, years=5)
-        sales_growth_3y = cagr(revenue, years=3)
-
-        profit = safe_get_series(financials, 'Net Income')
-        profit_growth_5y = cagr(profit, years=5)
-        profit_growth_3y = cagr(profit, years=3)
-
-        market_cap = info.get('marketCap', 0) / 1e7
-
-        ebit_series = safe_get_series(financials, 'EBIT')
-        ta_series = safe_get_series(balance_sheet, 'Total Assets')
-        cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
-        roce_values = []
-        for i in range(min(len(ebit_series), len(ta_series), len(cl_series))):
             ebit = ebit_series.iloc[i]
             ta = ta_series.iloc[i]
             cl = cl_series.iloc[i]
@@ -1032,6 +710,76 @@ def get_fundamental_data(ticker):
         return None
 
 # ------------------------------
+# PIOTROSKI F-SCORE CALCULATION
+# ------------------------------
+def calculate_piotroski_score(fund):
+    """
+    Computes Piotroski F-Score (0-9) based on:
+    Profitability: ROA > 0, CFO > 0, ΔROA > 0, Accrual = CFO > ROA
+    Leverage/Liquidity: ΔLeverage < 0, ΔLiquidity > 0, No new shares issued
+    Operating Efficiency: ΔGross Margin > 0, ΔAsset Turnover > 0
+    """
+    if fund is None:
+        return 0
+    
+    score = 0
+    
+    # Profitability
+    # 1. Return on Assets (ROA) > 0
+    roa = fund.get('roce')  # approximate using ROCE
+    if roa is not None and not pd.isna(roa) and roa > 0:
+        score += 1
+    
+    # 2. Cash Flow from Operations (CFO) > 0
+    cfo = fund.get('avg_fcf')
+    if cfo is not None and not pd.isna(cfo) and cfo > 0:
+        score += 1
+    
+    # 3. Change in ROA > 0 (use 3y growth as proxy)
+    roa_growth = fund.get('roce_3y_growth')
+    # We need to compute ROCE growth from historical data – not available in current fund dict
+    # Instead, use profit growth 3y as a proxy for profitability improvement
+    profit_growth = fund.get('profit_growth_3y')
+    if profit_growth is not None and not pd.isna(profit_growth) and profit_growth > 0:
+        score += 1
+    
+    # 4. Accrual = CFO > ROA (cash flow higher than accounting profit)
+    if cfo is not None and roa is not None and not pd.isna(cfo) and not pd.isna(roa) and cfo > roa:
+        score += 1
+    
+    # Leverage/Liquidity
+    # 5. Change in Leverage (D/E) < 0
+    de = fund.get('de_ratio')
+    # Need historical D/E to compute change – not available. Use current D/E < 0.5 as a proxy
+    if de is not None and not pd.isna(de) and de < 0.5:
+        score += 1
+    
+    # 6. Change in Current Ratio > 0 (use ICR > 3 as proxy for liquidity improvement)
+    icr = fund.get('icr')
+    if icr is not None and not pd.isna(icr) and icr > 3:
+        score += 1
+    
+    # 7. No new shares issued (use share count change – not available; assume no)
+    # We'll skip this for now; default to 0 if cannot determine. Could check sharesOutstanding from info.
+    shares = fund.get('info', {}).get('sharesOutstanding')
+    if shares is not None and shares > 0:
+        # If we had previous shares, we could compare; not available, so skip.
+        pass
+    
+    # Operating Efficiency
+    # 8. Change in Gross Margin > 0 (use sales growth > profit growth? proxy)
+    sales_growth = fund.get('sales_growth_3y')
+    profit_growth_ = fund.get('profit_growth_3y')
+    if sales_growth is not None and profit_growth_ is not None and not pd.isna(sales_growth) and not pd.isna(profit_growth_) and profit_growth_ > sales_growth:
+        score += 1
+    
+    # 9. Change in Asset Turnover > 0 (use sales growth > 0 as proxy)
+    if sales_growth is not None and not pd.isna(sales_growth) and sales_growth > 0:
+        score += 1
+    
+    return min(score, 9)  # ensure max 9
+
+# ------------------------------
 # ROBUST FAIR VALUE CALCULATION
 # ------------------------------
 def get_reliable_eps_and_growth(ticker, current_price):
@@ -1083,7 +831,72 @@ def get_reliable_fair_value(ticker, current_price):
     return current_price * 1.2  # rough 20% upside
 
 # ------------------------------
-# SCREENER FUNCTIONS
+# SCREEN STOCK FUNCTION (for holdings recommendations)
+# ------------------------------
+def screen_stock(fund):
+    if fund is None:
+        return "SELL", {}, 0, {}
+    
+    criteria_original = {
+        'Sales growth 3Y >15%': fund['sales_growth_3y'] > 15 if not pd.isna(fund['sales_growth_3y']) else False,
+        'Profit growth 3Y >15%': fund['profit_growth_3y'] > 15 if not pd.isna(fund['profit_growth_3y']) else False,
+        'Mkt Cap >1000 Cr': fund['market_cap'] > 1000 if not pd.isna(fund['market_cap']) else False,
+        'ROCE >15%': fund['roce'] > 15 if not pd.isna(fund['roce']) else False,
+        'Debt/Equity <0.5': fund['de_ratio'] < 0.5 if not pd.isna(fund['de_ratio']) else False,
+        'ICR >3': fund['icr'] > 3 if not pd.isna(fund['icr']) else False,
+        'Down from 52W high >30%': fund['down_from_high'] > 30 if not pd.isna(fund['down_from_high']) else False,
+        'Avg FCF >1 Cr': fund['avg_fcf'] > 1 if not pd.isna(fund['avg_fcf']) else False,
+        'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
+    }
+    
+    criteria_magic = {
+        'ROIC >25%': fund['roic'] > 25 if not pd.isna(fund['roic']) else False,
+        'Earnings Yield >15%': fund['ey'] > 15 if not pd.isna(fund['ey']) else False,
+        'Book Value >0': fund['book_value'] > 0 if not pd.isna(fund['book_value']) else False,
+        'Market Cap >15 Cr': fund['market_cap'] > 15 if not pd.isna(fund['market_cap']) else False,
+        'ROCE >20%': fund['roce'] > 20 if not pd.isna(fund['roce']) else False,
+        'Sales growth 5Y >10%': fund['sales_growth_5y'] > 10 if not pd.isna(fund['sales_growth_5y']) else False,
+        'Profit growth 5Y >15%': fund['profit_growth_5y'] > 15 if not pd.isna(fund['profit_growth_5y']) else False,
+        'Debt/Equity <0.2': fund['de_ratio'] < 0.2 if not pd.isna(fund['de_ratio']) else False,
+        'Promoter >60%': fund['promoter'] > 60 if not pd.isna(fund['promoter']) else False,
+        'Net Profit >200 Cr': fund['net_profit'] > 200 if not pd.isna(fund['net_profit']) else False
+    }
+    
+    all_criteria = {**criteria_original, **criteria_magic}
+    criteria_met = sum(all_criteria.values())
+    total_criteria = len(all_criteria)
+    
+    values = {
+        'Sales Gr 3Y': fund['sales_growth_3y'],
+        'Profit Gr 3Y': fund['profit_growth_3y'],
+        'Sales Gr 5Y': fund['sales_growth_5y'],
+        'Profit Gr 5Y': fund['profit_growth_5y'],
+        'Mkt Cap': fund['market_cap'],
+        'ROCE': fund['roce'],
+        'ROIC': fund['roic'],
+        'D/E': fund['de_ratio'],
+        'ICR': fund['icr'],
+        'Down 52W': fund['down_from_high'],
+        'Avg FCF': fund['avg_fcf'],
+        'Promoter': fund['promoter'],
+        'Book Value': fund['book_value'],
+        'Net Profit': fund['net_profit'],
+        'EY': fund['ey']
+    }
+    
+    if criteria_met >= total_criteria * 0.8:
+        rec = "SUPER BUY"
+    elif criteria_met >= total_criteria * 0.6:
+        rec = "BUY"
+    elif criteria_met >= total_criteria * 0.3:
+        rec = "HOLD"
+    else:
+        rec = "SELL"
+        
+    return rec, all_criteria, criteria_met, values
+
+# ------------------------------
+# SCREENER FUNCTIONS (Swing and Intraday)
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -1428,6 +1241,7 @@ def main_app():
             else:
                 st.info("💡 After saving, you need to start a conversation with your bot: Send `/start` to `@YourBotUsername` (replace with your bot's username) in Telegram. Then the bot can send you alerts.")
         
+        # Button to save settings
         if st.button("💾 Save Alert Settings", key="save_alert_settings_button"):
             st.session_state.settings = {
                 "email_enabled": email_enabled,
@@ -1449,6 +1263,7 @@ def main_app():
             st.session_state.telegram_chat_id = telegram_chat_id
             st.success("✅ Settings saved successfully!")
         
+        # Test alert buttons
         if st.button("🔔 Send Test Alert", key="test_alert_button"):
             if st.session_state.get('email_enabled', False):
                 result = st.session_state.alert_system.send_email_alert("TEST", 100, 90, "Test Alert", "₹90")
@@ -1468,6 +1283,128 @@ def main_app():
                         st.markdown("1. You have started a conversation with your bot by sending `/start` to `@YourBotUsername` in Telegram.")
                         st.markdown("2. Your numeric chat ID is correct (get it from @userinfobot).")
                         st.markdown("3. The bot token is correct.")
+        
+        # New button: Manual alert for strong signals
+        if st.button("📢 Send Alerts for Strong Signals Now", key="manual_alert_button"):
+            # Build current portfolio if not present
+            if st.session_state.portfolio_df is None and st.session_state.holdings_df is not None:
+                # rebuild portfolio (same logic as in holdings section)
+                portfolio_data = []
+                for idx, row in st.session_state.holdings_df.iterrows():
+                    name = row['Instrument']
+                    ticker = ALL_STOCKS.get(name)
+                    price_df = get_price_data(ticker)
+                    if price_df.empty:
+                        continue
+                    close_series = price_df['Close'].squeeze()
+                    if isinstance(close_series, pd.Series):
+                        current_price = close_series.iloc[-1]
+                    else:
+                        current_price = close_series
+                    try:
+                        current_price = float(current_price)
+                    except:
+                        continue
+                    portfolio_data.append({'Stock': name, 'Current Price': current_price})
+                temp_df = pd.DataFrame(portfolio_data)
+            elif st.session_state.portfolio_df is not None:
+                temp_df = st.session_state.portfolio_df[['Stock', 'Current Price']].copy()
+            else:
+                # no holdings, use sample
+                sample_portfolio = [
+                    {"Stock": "HDFCBANK", "Current Price": 1680.50},
+                    {"Stock": "VBL", "Current Price": 445.75},
+                    {"Stock": "IREDA", "Current Price": 115.63},
+                    {"Stock": "WAAREEENER", "Current Price": 2890.90},
+                    {"Stock": "MAZDOCK", "Current Price": 2332.90},
+                    {"Stock": "ADANIPORTS", "Current Price": 1362.40},
+                    {"Stock": "BSE", "Current Price": 2952.60},
+                    {"Stock": "HAL", "Current Price": 3935.40}
+                ]
+                temp_df = pd.DataFrame(sample_portfolio)
+            
+            # Build action data for these stocks (same logic as in final action table)
+            action_rows = []
+            for _, row in temp_df.iterrows():
+                stock = row['Stock']
+                current_price = row['Current Price']
+                ticker = ALL_STOCKS.get(stock)
+                if not ticker:
+                    continue
+                fair_value = get_reliable_fair_value(ticker, current_price)
+                buy_zone_low = fair_value * 0.8
+                buy_zone_high = fair_value * 0.85
+                sell_zone_low = fair_value * 1.2
+                sell_zone_high = fair_value * 1.3
+                
+                if current_price <= buy_zone_high:
+                    if current_price <= buy_zone_low:
+                        action = "BUY"
+                        priority = "⭐⭐⭐⭐⭐"
+                    else:
+                        action = "BUY"
+                        priority = "⭐⭐⭐⭐"
+                elif current_price <= fair_value:
+                    action = "BUY (DIP)"
+                    priority = "⭐⭐⭐"
+                elif current_price <= fair_value * 1.2:
+                    action = "HOLD"
+                    priority = "⭐⭐⭐"
+                elif current_price <= fair_value * 1.5:
+                    action = "REDUCE"
+                    priority = "⭐⭐"
+                else:
+                    action = "SELL"
+                    priority = "⭐"
+                
+                action_rows.append({
+                    'Stock': stock,
+                    'Current Price': current_price,
+                    'Action': action,
+                    'Priority': priority,
+                    'Buy Zone Low': buy_zone_low,
+                    'Buy Zone High': buy_zone_high,
+                    'Sell Zone Low': sell_zone_low,
+                    'Sell Zone High': sell_zone_high
+                })
+            
+            # Now send alerts for strong signals
+            alert_count = 0
+            for row in action_rows:
+                if row['Action'] == 'BUY' and row['Priority'] == '⭐⭐⭐⭐⭐':
+                    key = f"strong_buy_{row['Stock']}"
+                    if st.session_state.alert_system.should_send_alert(key):
+                        target_zone = f"₹{round(row['Buy Zone Low'], 2)} – ₹{round(row['Buy Zone High'], 2)}"
+                        if st.session_state.get('telegram_enabled', False):
+                            st.session_state.alert_system.send_telegram_alert(
+                                row['Stock'], row['Current Price'], row['Buy Zone Low'],
+                                "Strong Buy", target_zone
+                            )
+                        if st.session_state.get('email_enabled', False):
+                            st.session_state.alert_system.send_email_alert(
+                                row['Stock'], row['Current Price'], row['Buy Zone Low'],
+                                "Strong Buy", target_zone
+                            )
+                        alert_count += 1
+                elif row['Action'] == 'SELL':
+                    key = f"strong_sell_{row['Stock']}"
+                    if st.session_state.alert_system.should_send_alert(key):
+                        target_zone = f"₹{round(row['Sell Zone Low'], 2)} – ₹{round(row['Sell Zone High'], 2)}"
+                        if st.session_state.get('telegram_enabled', False):
+                            st.session_state.alert_system.send_telegram_alert(
+                                row['Stock'], row['Current Price'], row['Sell Zone Low'],
+                                "Strong Sell", target_zone
+                            )
+                        if st.session_state.get('email_enabled', False):
+                            st.session_state.alert_system.send_email_alert(
+                                row['Stock'], row['Current Price'], row['Sell Zone Low'],
+                                "Strong Sell", target_zone
+                            )
+                        alert_count += 1
+            if alert_count > 0:
+                st.success(f"✅ Sent {alert_count} alert(s) for strong signals.")
+            else:
+                st.info("No strong buy or sell signals found at this moment.")
         
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot. You must also send a message to your bot first (e.g., `/start`) to allow it to message you.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1721,6 +1658,10 @@ def main_app():
                 else:
                     allocation = "0–2%"
                 
+                # Piotroski score
+                fund = get_fundamental_data(ticker)
+                piotroski = calculate_piotroski_score(fund) if fund else 0
+                
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1763,6 +1704,7 @@ def main_app():
                     'Sell Zone (₹)': f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}",
                     'Allocation': allocation,
                     'Verdict': verdict,
+                    'Piotroski Score': piotroski,
                     'Buy Zone Low': buy_zone_low,
                     'Buy Zone High': buy_zone_high,
                     'Sell Zone Low': sell_zone_low,
@@ -1835,7 +1777,7 @@ def main_app():
             else:
                 st.success("✅ All BUY recommendations are currently in the buy zone!")
             
-            # Auto-alerts for strong signals
+            # Auto-alerts for strong signals (called automatically when portfolio is built)
             def check_strong_signals_and_alert(portfolio_df):
                 if not (st.session_state.get('telegram_enabled', False) or st.session_state.get('email_enabled', False)):
                     return
@@ -1991,6 +1933,64 @@ def main_app():
                 st.success(f"✅ Alerts sent: {', '.join(alerts_triggered)}")
             else:
                 st.info("No alerts triggered at this time. Check your target prices and current prices.")
+        
+        # Editable target prices for each stock
+        st.markdown("---")
+        st.subheader("✏️ Set Custom Target Prices")
+        st.caption("Add or edit target prices per stock. Alerts will be sent when the price drops to or below any of these targets.")
+        
+        # Display current target prices in a table with ability to edit
+        target_df_data = []
+        for stock in st.session_state.portfolio_df['Stock'].unique():
+            current_targets = st.session_state.target_prices.get(stock, [])
+            if isinstance(current_targets, list):
+                target_str = ", ".join([f"₹{t:.2f}" for t in current_targets]) if current_targets else "None"
+            else:
+                target_str = f"₹{current_targets:.2f}" if current_targets else "None"
+            target_df_data.append({"Stock": stock, "Current Targets": target_str})
+        
+        target_df = pd.DataFrame(target_df_data)
+        st.dataframe(target_df, use_container_width=True, hide_index=True)
+        
+        # Input for new target
+        col1, col2, col3 = st.columns([2,1,1])
+        with col1:
+            selected_stock = st.selectbox("Select Stock", st.session_state.portfolio_df['Stock'].unique())
+        with col2:
+            new_target = st.number_input("Target Price (₹)", min_value=0.0, step=5.0, value=100.0)
+        with col3:
+            if st.button("Add/Update Target", key="add_target_button"):
+                current = st.session_state.target_prices.get(selected_stock, [])
+                if not isinstance(current, list):
+                    current = [current] if current else []
+                if new_target not in current:
+                    current.append(new_target)
+                    current.sort()
+                    st.session_state.target_prices[selected_stock] = current
+                    save_target_prices(st.session_state.target_prices)
+                    st.success(f"Added target ₹{new_target:.2f} for {selected_stock}")
+                else:
+                    st.warning("Target already exists.")
+                st.rerun()
+        
+        # Option to remove targets
+        with st.expander("🗑️ Remove Target Prices"):
+            for stock in st.session_state.portfolio_df['Stock'].unique():
+                targets = st.session_state.target_prices.get(stock, [])
+                if targets:
+                    for t in targets:
+                        if st.button(f"Remove ₹{t:.2f} for {stock}", key=f"rem_{stock}_{t}"):
+                            if isinstance(targets, list):
+                                targets.remove(t)
+                                if not targets:
+                                    del st.session_state.target_prices[stock]
+                                else:
+                                    st.session_state.target_prices[stock] = targets
+                            else:
+                                del st.session_state.target_prices[stock]
+                            save_target_prices(st.session_state.target_prices)
+                            st.success(f"Removed target ₹{t:.2f} for {stock}")
+                            st.rerun()
         
     else:
         st.info("No holdings data. Please add stocks using the section below.")
