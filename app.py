@@ -252,7 +252,7 @@ class AlertSystem:
     def __init__(self):
         self.alert_cooldown = {}
         self.cooldown_minutes = 15
-        
+
     def should_send_alert(self, key):
         current_time = time.time()
         if key in self.alert_cooldown:
@@ -262,20 +262,20 @@ class AlertSystem:
                 return False
         self.alert_cooldown[key] = current_time
         return True
-    
-    def send_email_alert(self, stock_name, current_price, target_price, signal_type="Alert", target_zone=""):
+
+    def send_email_alert(self, stock_name, current_price, trigger_price, signal_type="Alert", target_zone=""):
         if not st.session_state.get('email_enabled', False):
             return False
-            
+
         sender_email = st.session_state.get('email_sender', '')
         sender_password = st.session_state.get('email_password', '')
         recipient_email = st.session_state.get('email_recipient', '')
-        
+
         if not all([sender_email, sender_password, recipient_email]):
             return False
-            
+
         subject = f"🚨 {signal_type} ALERT: {stock_name}"
-        
+
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; padding: 20px;">
@@ -286,8 +286,8 @@ class AlertSystem:
                     <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f} None
                 </tr>
                 <tr>
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Target Zone:</strong> None
-                    <td style="padding: 10px; border: 1px solid #ddd;">{target_zone} None
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Trigger Price:</strong> None
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{trigger_price:.2f} None
                 </tr>
                 <tr style="background-color: #f2f2f2;">
                     <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong> None
@@ -300,14 +300,14 @@ class AlertSystem:
         </body>
         </html>
         """
-        
+
         try:
             msg = MIMEMultipart()
             msg['From'] = sender_email
             msg['To'] = recipient_email
             msg['Subject'] = subject
             msg.attach(MIMEText(html_body, 'html'))
-            
+
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(sender_email, sender_password)
@@ -317,25 +317,25 @@ class AlertSystem:
         except Exception as e:
             st.error(f"Email failed: {str(e)}")
             return False
-    
-    def send_telegram_alert(self, stock_name, current_price, target_price, signal_type="Alert", target_zone=""):
+
+    def send_telegram_alert(self, stock_name, current_price, trigger_price, signal_type="Alert", target_zone=""):
         if not st.session_state.get('telegram_enabled', False):
             return False
-            
+
         bot_token = st.session_state.get('telegram_bot_token', '')
         chat_id = st.session_state.get('telegram_chat_id', '')
-        
+
         if not all([bot_token, chat_id]):
             return False
-            
+
         message = f"""🚨 {signal_type} ALERT: {stock_name}
 
 Current Price: ₹{current_price:.2f}
-Target Zone: {target_zone}
+Trigger Price: ₹{trigger_price:.2f}
 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 This is an automated alert from Quant Fund Manager."""
-        
+
         try:
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             payload = {
@@ -351,19 +351,26 @@ This is an automated alert from Quant Fund Manager."""
         except Exception as e:
             st.error(f"Telegram failed: {str(e)}")
             return False
-    
-    def check_and_send_alerts(self, stock_name, current_price, target_prices):
-        alerts_sent = []
-        for target_price in target_prices:
-            key = f"price_target_{stock_name}_{target_price}"
+
+    def send_price_alert(self, stock_name, current_price, trigger_price, signal_type="Buy Alert"):
+        if st.session_state.get('telegram_enabled', False):
+            self.send_telegram_alert(stock_name, current_price, trigger_price, signal_type)
+        if st.session_state.get('email_enabled', False):
+            self.send_email_alert(stock_name, current_price, trigger_price, signal_type)
+
+    def check_price_alerts(self, stock_name, current_price, buy_price, sell_price):
+        alerts = []
+        if buy_price is not None and current_price <= buy_price:
+            key = f"buy_alert_{stock_name}"
             if self.should_send_alert(key):
-                if st.session_state.get('email_enabled', False):
-                    if self.send_email_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
-                        alerts_sent.append(f"Email at ₹{target_price:.2f}")
-                if st.session_state.get('telegram_enabled', False):
-                    if self.send_telegram_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
-                        alerts_sent.append(f"Telegram at ₹{target_price:.2f}")
-        return alerts_sent
+                self.send_price_alert(stock_name, current_price, buy_price, "Buy Alert")
+                alerts.append(f"Buy Alert at ₹{buy_price:.2f}")
+        if sell_price is not None and current_price >= sell_price:
+            key = f"sell_alert_{stock_name}"
+            if self.should_send_alert(key):
+                self.send_price_alert(stock_name, current_price, sell_price, "Sell Alert")
+                alerts.append(f"Sell Alert at ₹{sell_price:.2f}")
+        return alerts
 
 # ------------------------------
 # SETTINGS PERSISTENCE
@@ -541,7 +548,7 @@ def get_intraday_data(ticker):
 # ------------------------------
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
-TARGET_PRICES_FILE = "target_prices.json"
+ALERT_PRICES_FILE = "alert_prices.json"
 
 def load_holdings():
     if os.path.exists(HOLDINGS_FILE):
@@ -583,18 +590,18 @@ def save_sold(df):
         if os.path.exists(SOLD_FILE):
             os.remove(SOLD_FILE)
 
-def load_target_prices():
-    if os.path.exists(TARGET_PRICES_FILE):
+def load_alert_prices():
+    if os.path.exists(ALERT_PRICES_FILE):
         try:
-            with open(TARGET_PRICES_FILE, 'r') as f:
+            with open(ALERT_PRICES_FILE, 'r') as f:
                 return json.load(f)
         except:
             pass
     return {}
 
-def save_target_prices(target_dict):
-    with open(TARGET_PRICES_FILE, 'w') as f:
-        json.dump(target_dict, f, indent=2)
+def save_alert_prices(alert_dict):
+    with open(ALERT_PRICES_FILE, 'w') as f:
+        json.dump(alert_dict, f, indent=2)
 
 # ------------------------------
 # FUNDAMENTAL FETCHING
@@ -836,7 +843,7 @@ def get_reliable_fair_value(ticker, current_price):
 def screen_stock(fund):
     if fund is None:
         return "SELL", {}, 0, {}
-    
+
     criteria_original = {
         'Sales growth 3Y >15%': fund['sales_growth_3y'] > 15 if not pd.isna(fund['sales_growth_3y']) else False,
         'Profit growth 3Y >15%': fund['profit_growth_3y'] > 15 if not pd.isna(fund['profit_growth_3y']) else False,
@@ -848,7 +855,7 @@ def screen_stock(fund):
         'Avg FCF >1 Cr': fund['avg_fcf'] > 1 if not pd.isna(fund['avg_fcf']) else False,
         'Promoter >50%': fund['promoter'] > 50 if not pd.isna(fund['promoter']) else False
     }
-    
+
     criteria_magic = {
         'ROIC >25%': fund['roic'] > 25 if not pd.isna(fund['roic']) else False,
         'Earnings Yield >15%': fund['ey'] > 15 if not pd.isna(fund['ey']) else False,
@@ -861,11 +868,11 @@ def screen_stock(fund):
         'Promoter >60%': fund['promoter'] > 60 if not pd.isna(fund['promoter']) else False,
         'Net Profit >200 Cr': fund['net_profit'] > 200 if not pd.isna(fund['net_profit']) else False
     }
-    
+
     all_criteria = {**criteria_original, **criteria_magic}
     criteria_met = sum(all_criteria.values())
     total_criteria = len(all_criteria)
-    
+
     values = {
         'Sales Gr 3Y': fund['sales_growth_3y'],
         'Profit Gr 3Y': fund['profit_growth_3y'],
@@ -883,7 +890,7 @@ def screen_stock(fund):
         'Net Profit': fund['net_profit'],
         'EY': fund['ey']
     }
-    
+
     if criteria_met >= total_criteria * 0.8:
         rec = "SUPER BUY"
     elif criteria_met >= total_criteria * 0.6:
@@ -892,7 +899,7 @@ def screen_stock(fund):
         rec = "HOLD"
     else:
         rec = "SELL"
-        
+
     return rec, all_criteria, criteria_met, values
 
 # ------------------------------
@@ -913,18 +920,18 @@ def train_simple_model(df):
         df_model.dropna(inplace=True)
         if len(df_model) < 50:
             return None, None
-        
+
         feature_names = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
         X = df_model[feature_names]
         y = df_model['Target']
-        
+
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         scaler.feature_names_in_ = feature_names
-        
+
         model = RandomForestClassifier(n_estimators=30, max_depth=4, random_state=42)
         model.fit(X_scaled, y)
-        
+
         return model, scaler
     except Exception:
         return None, None
@@ -1186,8 +1193,8 @@ def main_app():
         st.session_state.criteria_data = {}
     if 'last_refresh' not in st.session_state:
         st.session_state.last_refresh = datetime.now()
-    if 'target_prices' not in st.session_state:
-        st.session_state.target_prices = load_target_prices()
+    if 'alert_prices' not in st.session_state:
+        st.session_state.alert_prices = load_alert_prices()
     if 'settings' not in st.session_state:
         st.session_state.settings = load_settings()
     if 'alert_system' not in st.session_state:
@@ -1227,7 +1234,7 @@ def main_app():
             email_password = st.text_input("App Password", value=st.session_state.settings.get("email_password", ""), type="password", key="email_password_input",
                          help="Use Gmail App Password (not your regular password)")
             email_recipient = st.text_input("Recipient Email", value=st.session_state.settings.get("email_recipient", "sajjanvsl@gmail.com"), key="email_recipient_input")
-        
+
         with col2:
             st.subheader("📱 Telegram Settings")
             telegram_enabled = st.checkbox("Enable Telegram Alerts", value=st.session_state.settings.get("telegram_enabled", False), key="telegram_enabled_input")
@@ -1235,12 +1242,12 @@ def main_app():
                          help="Get from @BotFather on Telegram")
             telegram_chat_id = st.text_input("Chat ID", value=st.session_state.settings.get("telegram_chat_id", ""), key="telegram_chat_id_input",
                          help="Your numeric chat ID (e.g., 123456789). Get it from @userinfobot.")
-            
+
             if telegram_chat_id.startswith('@'):
                 st.warning("⚠️ You entered a username. For direct messages, you need the numeric chat ID. Please get it from @userinfobot.")
             else:
                 st.info("💡 After saving, you need to start a conversation with your bot: Send `/start` to `@YourBotUsername` (replace with your bot's username) in Telegram. Then the bot can send you alerts.")
-        
+
         if st.button("💾 Save Alert Settings", key="save_alert_settings_button"):
             st.session_state.settings = {
                 "email_enabled": email_enabled,
@@ -1261,7 +1268,7 @@ def main_app():
             st.session_state.telegram_bot_token = telegram_bot_token
             st.session_state.telegram_chat_id = telegram_chat_id
             st.success("✅ Settings saved successfully!")
-        
+
         if st.button("🔔 Send Test Alert", key="test_alert_button"):
             if st.session_state.get('email_enabled', False):
                 result = st.session_state.alert_system.send_email_alert("TEST", 100, 90, "Test Alert", "₹90")
@@ -1281,7 +1288,7 @@ def main_app():
                         st.markdown("1. You have started a conversation with your bot by sending `/start` to `@YourBotUsername` in Telegram.")
                         st.markdown("2. Your numeric chat ID is correct (get it from @userinfobot).")
                         st.markdown("3. The bot token is correct.")
-        
+
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot. You must also send a message to your bot first (e.g., `/start`) to allow it to message you.")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1308,7 +1315,7 @@ def main_app():
 
     # ========== TABS (Only 3) ==========
     tab1, tab2, tab3 = st.tabs([
-        "🤖 AI Swing Trading Scanner", 
+        "🤖 AI Swing Trading Scanner",
         "🤖 AI Intraday Picks",
         "📊 Custom Fair Value + Final Portfolio Action"
     ])
@@ -1363,7 +1370,7 @@ def main_app():
     with tab3:
         st.markdown("## 📊 Custom Fair Value (EPS × Growth)")
         st.caption("**Formula:** Fair Value = EPS × Growth Rate × 1.5 | **Buy Below:** 80‑85% of Fair Value")
-        
+
         stock_list = [
             {"name": "HAL", "category": "🟢 Core High-Conviction", "symbol": "HAL.NS"},
             {"name": "MAZDOCK", "category": "🟢 Core High-Conviction", "symbol": "MAZDOCK.NS"},
@@ -1376,7 +1383,7 @@ def main_app():
             {"name": "ANANTRAJ", "category": "🚀 High Growth / High Risk", "symbol": "ANANTRAJ.NS"},
             {"name": "BAJAJHFL", "category": "⚠️ Defensive / Low Growth", "symbol": "BAJAJHFL.NS"}
         ]
-        
+
         rows = []
         for stock in stock_list:
             ticker = stock["symbol"]
@@ -1384,20 +1391,20 @@ def main_app():
             if price_df.empty:
                 continue
             current_price = price_df['Close'].iloc[-1]
-            
+
             fair_value = get_reliable_fair_value(ticker, current_price)
             if fair_value is None:
                 continue
-            
+
             buy_low = fair_value * 0.80
             buy_high = fair_value * 0.85
-            
+
             eps, growth = get_reliable_eps_and_growth(ticker, current_price)
             if eps is None:
                 eps = np.nan
             if growth is None:
                 growth = np.nan
-            
+
             rows.append({
                 "Category": stock["category"],
                 "Stock": stock["name"],
@@ -1406,7 +1413,7 @@ def main_app():
                 "Fair Value (₹)": round(fair_value, 2),
                 "Buy Below (₹)": f"₹{round(buy_low, 2)} – ₹{round(buy_high, 2)}"
             })
-        
+
         if rows:
             df_fv = pd.DataFrame(rows)
             for category, group in df_fv.groupby("Category"):
@@ -1418,11 +1425,11 @@ def main_app():
                 )
         else:
             st.info("No fair value data available. Check your internet connection or stock symbols.")
-        
+
         st.markdown("---")
         st.markdown("## 📊 🔥 FINAL PORTFOLIO ACTION TABLE")
         st.caption("**Current Price** vs **Buy Zone** – Buy when price falls into the Buy Zone. **Sell Zone** is for profit booking.")
-        
+
         use_sample = False
         if st.session_state.portfolio_df is None or st.session_state.portfolio_df.empty:
             st.info("No holdings data found. You can either:")
@@ -1434,7 +1441,7 @@ def main_app():
                 if st.button("📊 Use Sample Portfolio Data", key="use_sample_data_button"):
                     use_sample = True
                     st.success("Using sample portfolio data for demonstration.")
-        
+
         sample_portfolio = [
             {"Stock": "HDFCBANK", "Current Price": 1680.50},
             {"Stock": "VBL", "Current Price": 445.75},
@@ -1467,32 +1474,32 @@ def main_app():
             {"Stock": "NHPC", "Current Price": 75.33},
             {"Stock": "AWHCL", "Current Price": 494.50}
         ]
-        
+
         if use_sample or (st.session_state.portfolio_df is not None and not st.session_state.portfolio_df.empty):
             if use_sample:
                 action_df = pd.DataFrame(sample_portfolio)
             else:
                 action_df = st.session_state.portfolio_df[['Stock', 'Current Price']].copy()
-            
+
             action_data = []
             fair_values = {}
-            
+
             for _, row in action_df.iterrows():
                 stock = row['Stock']
                 current_price = row['Current Price']
-                
+
                 ticker = ALL_STOCKS.get(stock)
                 if not ticker:
                     continue
-                
+
                 fair_value = get_reliable_fair_value(ticker, current_price)
                 fair_values[stock] = fair_value
-                
+
                 buy_zone_low = fair_value * 0.8
                 buy_zone_high = fair_value * 0.85
                 sell_zone_low = fair_value * 1.2
                 sell_zone_high = fair_value * 1.3
-                
+
                 if current_price <= buy_zone_high:
                     if current_price <= buy_zone_low:
                         action = "BUY"
@@ -1518,9 +1525,9 @@ def main_app():
                     action = "SELL"
                     priority = "⭐"
                     verdict = "Overvalued - Exit or reduce"
-                
+
                 in_buy_zone = "✅ Yes" if buy_zone_low <= current_price <= buy_zone_high else "❌ No"
-                
+
                 if "⭐⭐⭐⭐⭐" in priority:
                     allocation = "15–20%"
                 elif "⭐⭐⭐⭐" in priority and "DIP" not in action:
@@ -1533,7 +1540,7 @@ def main_app():
                     allocation = "3–5%"
                 else:
                     allocation = "0–2%"
-                
+
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1565,7 +1572,7 @@ def main_app():
                 }
                 if stock in verdict_map:
                     verdict = verdict_map[stock]
-                
+
                 action_data.append({
                     'Stock': stock,
                     'Current Price': f"₹{current_price:.2f}",
@@ -1582,15 +1589,15 @@ def main_app():
                     'Sell Zone High': sell_zone_high,
                     'Fair Value': fair_value
                 })
-            
+
             result_df = pd.DataFrame(action_data)
             priority_order = {'⭐⭐⭐⭐⭐': 1, '⭐⭐⭐⭐': 2, '⭐⭐⭐': 3, '⭐⭐': 4, '⭐': 5}
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
-            
+
             st.dataframe(
                 result_df.style.applymap(
-                    lambda x: 'background-color: #d4edda' if x == 'BUY' else 
+                    lambda x: 'background-color: #d4edda' if x == 'BUY' else
                              ('background-color: #fff3cd' if x == 'BUY (DIP)' else
                               ('background-color: #f8d7da' if x == 'SELL' else
                                ('background-color: #cce5ff' if x == 'HOLD' else ''))),
@@ -1602,11 +1609,11 @@ def main_app():
                 use_container_width=True,
                 hide_index=True
             )
-            
+
             st.markdown("---")
             st.subheader("📊 Portfolio Summary")
             col1, col2, col3, col4, col5 = st.columns(5)
-            
+
             with col1:
                 buy_count = len(result_df[result_df['Action'].str.contains('BUY')])
                 st.metric("BUY Signals", buy_count)
@@ -1622,7 +1629,7 @@ def main_app():
             with col5:
                 in_zone = len(result_df[result_df['In Buy Zone'] == '✅ Yes'])
                 st.metric("In Buy Zone", in_zone)
-            
+
             st.markdown("---")
             st.subheader("🎯 Recommended Allocation by Priority")
             allocation_summary = result_df.groupby('Priority')['Allocation'].first().reset_index()
@@ -1630,7 +1637,7 @@ def main_app():
                 fig = px.pie(allocation_summary, values='Allocation', names='Priority', title='Suggested Portfolio Weight')
                 fig.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig, use_container_width=True)
-            
+
             st.markdown("---")
             st.subheader("🏆 Top 5 BUY Recommendations")
             top_buys = result_df[result_df['Action'].str.contains('BUY')].head(5)
@@ -1638,7 +1645,7 @@ def main_app():
                 st.dataframe(top_buys[['Stock', 'Current Price', 'Action', 'Priority', 'Buy Zone (₹)', 'In Buy Zone', 'Verdict']], use_container_width=True, hide_index=True)
             else:
                 st.info("No BUY recommendations at this time.")
-            
+
             st.markdown("---")
             st.subheader("⚠️ Stocks to Watch (Above Buy Zone)")
             above_zone = result_df[(result_df['In Buy Zone'] == '❌ No') & (result_df['Action'].str.contains('BUY'))]
@@ -1647,12 +1654,12 @@ def main_app():
                 st.info("💡 These stocks are currently above the recommended buy zone. Consider waiting for price to dip into the buy zone.")
             else:
                 st.success("✅ All BUY recommendations are currently in the buy zone!")
-            
+
             # Auto-alerts for strong signals
             def check_strong_signals_and_alert(portfolio_df):
                 if not (st.session_state.get('telegram_enabled', False) or st.session_state.get('email_enabled', False)):
                     return
-                
+
                 for _, row in portfolio_df.iterrows():
                     stock = row['Stock']
                     action = row['Action']
@@ -1663,7 +1670,7 @@ def main_app():
                     buy_zone_high = row['Buy Zone High']
                     sell_zone_low = row['Sell Zone Low']
                     sell_zone_high = row['Sell Zone High']
-                    
+
                     if action == 'BUY' and priority == '⭐⭐⭐⭐⭐':
                         key = f"strong_buy_{stock}"
                         if st.session_state.alert_system.should_send_alert(key):
@@ -1675,7 +1682,7 @@ def main_app():
                                 st.session_state.alert_system.send_telegram_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone)
                             if st.session_state.get('email_enabled', False):
                                 st.session_state.alert_system.send_email_alert(stock, current_price, buy_zone_low, "Strong Buy", target_zone)
-                    
+
                     elif action == 'SELL':
                         key = f"strong_sell_{stock}"
                         if st.session_state.alert_system.should_send_alert(key):
@@ -1687,9 +1694,9 @@ def main_app():
                                 st.session_state.alert_system.send_telegram_alert(stock, current_price, sell_zone_low, "Strong Sell", target_zone)
                             if st.session_state.get('email_enabled', False):
                                 st.session_state.alert_system.send_email_alert(stock, current_price, sell_zone_low, "Strong Sell", target_zone)
-            
+
             check_strong_signals_and_alert(result_df)
-            
+
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
@@ -1707,7 +1714,7 @@ def main_app():
             buy_count = 0
             hold_count = 0
             sell_count = 0
-            
+
             for idx, row in st.session_state.holdings_df.iterrows():
                 name = row['Instrument']
                 ticker = ALL_STOCKS.get(name)
@@ -1723,7 +1730,7 @@ def main_app():
                     current_price = float(current_price)
                 except:
                     continue
-                
+
                 cur_value = row['Qty'] * current_price
                 if not pd.isna(row['Avg Price']):
                     pnl = row['Qty'] * (current_price - row['Avg Price'])
@@ -1733,7 +1740,6 @@ def main_app():
                     pnl_pct = np.nan
                 fund = get_fundamental_data(ticker)
                 rec, criteria, criteria_met, values = screen_stock(fund)
-                # Compute Piotroski score
                 piotroski = calculate_piotroski_score(ticker)
                 if piotroski is None:
                     piotroski = 0
@@ -1745,7 +1751,7 @@ def main_app():
                     hold_count += 1
                 else:
                     sell_count += 1
-                
+
                 portfolio_data.append({
                     'Stock': name,
                     'Qty': row['Qty'],
@@ -1761,7 +1767,7 @@ def main_app():
                 total_value += cur_value
                 if not pd.isna(row['Avg Price']):
                     total_cost += row['Qty'] * row['Avg Price']
-            
+
             st.session_state.portfolio_df = pd.DataFrame(portfolio_data)
             st.session_state.total_value = total_value
             st.session_state.total_cost = total_cost
@@ -1769,80 +1775,84 @@ def main_app():
             st.session_state.buy_count = buy_count
             st.session_state.hold_count = hold_count
             st.session_state.sell_count = sell_count
-        
+
         st.markdown("## 📊 Your Holdings")
         st.dataframe(st.session_state.portfolio_df, use_container_width=True)
-        
-        # Editable target prices (individual text inputs)
-        st.markdown("### ✏️ Set Custom Target Prices for Alerts")
-        st.caption("Enter target prices (comma‑separated) for each stock. You will receive alerts when the price reaches any of these levels.")
 
-        # Get existing targets
-        target_dict = st.session_state.target_prices
+        # ------------------------------
+        # DELETE STOCKS SECTION
+        # ------------------------------
+        st.markdown("### 🗑️ Delete Stocks from Holdings")
+        with st.expander("Select stocks to delete"):
+            all_stocks = st.session_state.holdings_df['Instrument'].tolist()
+            stocks_to_delete = st.multiselect("Choose stocks to remove:", all_stocks)
+            if stocks_to_delete and st.button("Delete Selected Stocks"):
+                st.session_state.holdings_df = st.session_state.holdings_df[~st.session_state.holdings_df['Instrument'].isin(stocks_to_delete)]
+                save_holdings(st.session_state.holdings_df)
+                st.session_state.portfolio_df = None  # Force rebuild
+                st.success(f"Deleted {len(stocks_to_delete)} stocks.")
+                st.rerun()
 
-        # Create editable fields
+        # ------------------------------
+        # ALERT PRICES SECTION
+        # ------------------------------
+        st.markdown("### ✏️ Set Buy & Sell Alert Prices")
+        st.caption("Enter buy price (alert when price ≤ this) and sell price (alert when price ≥ this). Leave blank to disable.")
+
+        alert_prices = st.session_state.alert_prices
         updated = False
+
         for stock in st.session_state.portfolio_df['Stock'].unique():
-            current_targets = target_dict.get(stock, [])
-            if isinstance(current_targets, (int, float)):
-                current_targets = [current_targets]
-            elif not isinstance(current_targets, list):
-                current_targets = []
-            target_str = ', '.join([f"{t:.2f}" for t in current_targets]) if current_targets else ""
-            new_target_str = st.text_input(f"{stock} targets (₹, comma separated)", value=target_str, key=f"target_{stock}")
-            if new_target_str != target_str:
-                if new_target_str.strip():
-                    new_targets = [float(x.strip()) for x in new_target_str.split(',') if x.strip()]
-                else:
-                    new_targets = []
-                target_dict[stock] = new_targets
+            current = alert_prices.get(stock, {"buy": None, "sell": None})
+            col1, col2 = st.columns(2)
+            with col1:
+                buy_price = st.number_input(
+                    f"{stock} Buy Price (₹)",
+                    value=current["buy"] if current["buy"] is not None else 0.0,
+                    step=5.0,
+                    key=f"buy_{stock}"
+                )
+            with col2:
+                sell_price = st.number_input(
+                    f"{stock} Sell Price (₹)",
+                    value=current["sell"] if current["sell"] is not None else 0.0,
+                    step=5.0,
+                    key=f"sell_{stock}"
+                )
+            new_buy = buy_price if buy_price > 0 else None
+            new_sell = sell_price if sell_price > 0 else None
+            if (new_buy != current["buy"]) or (new_sell != current["sell"]):
+                alert_prices[stock] = {"buy": new_buy, "sell": new_sell}
                 updated = True
 
         if updated:
-            st.session_state.target_prices = target_dict
-            save_target_prices(target_dict)
-            st.success("Target prices updated.")
-        
+            st.session_state.alert_prices = alert_prices
+            save_alert_prices(alert_prices)
+            st.success("Alert prices updated.")
+
         st.markdown("---")
         st.subheader("🔔 Live Alerts")
-        st.caption("The system automatically checks if any stock has dropped into your buy zone or reached your target price.")
-        
+        st.caption("The system automatically checks if any stock hits your buy or sell price.")
+
         if st.button("🔍 Check Alerts Now", key="check_alerts_button"):
             alerts_triggered = []
             for _, row in st.session_state.portfolio_df.iterrows():
                 stock = row['Stock']
                 current_price = row['Current Price']
-                
-                ticker = ALL_STOCKS.get(stock)
-                fund = get_fundamental_data(ticker)
-                eps_growth_buy = None
-                if fund:
-                    fair_value = get_reliable_fair_value(ticker, current_price)
-                    eps_growth_buy = fair_value * 0.8 if fair_value else None
-                
-                target_list = []
-                if eps_growth_buy:
-                    target_list.append(eps_growth_buy)
-                if stock in st.session_state.target_prices:
-                    user_targets = st.session_state.target_prices[stock]
-                    if isinstance(user_targets, list):
-                        target_list.extend(user_targets)
-                    else:
-                        target_list.append(user_targets)
-                
-                if target_list:
-                    alerts_sent = st.session_state.alert_system.check_and_send_alerts(stock, current_price, target_list)
-                    if alerts_sent:
-                        alerts_triggered.append(f"{stock}: {', '.join(alerts_sent)}")
-            
+                alert = st.session_state.alert_prices.get(stock, {"buy": None, "sell": None})
+                buy_price = alert["buy"]
+                sell_price = alert["sell"]
+                alerts = st.session_state.alert_system.check_price_alerts(stock, current_price, buy_price, sell_price)
+                if alerts:
+                    alerts_triggered.append(f"{stock}: {', '.join(alerts)}")
             if alerts_triggered:
                 st.success(f"✅ Alerts sent: {', '.join(alerts_triggered)}")
             else:
-                st.info("No alerts triggered at this time. Check your target prices and current prices.")
-        
+                st.info("No alerts triggered at this time.")
+
     else:
         st.info("No holdings data. Please add stocks using the section below.")
-    
+
     # ------------------------------
     # INPUT SECTION
     # ------------------------------
@@ -1853,7 +1863,7 @@ def main_app():
         uploaded_file = st.file_uploader("Upload Holdings CSV", type=['csv'], key="file_uploader_bottom")
     with col2:
         single_stock = st.text_input("Or add a single stock", placeholder="e.g., CIPLA or MCX").strip().upper()
-    
+
     if uploaded_file is not None:
         try:
             raw_df = pd.read_csv(uploaded_file, skipinitialspace=True, engine='python')
@@ -1879,7 +1889,7 @@ def main_app():
                     st.rerun()
         except Exception as e:
             st.error(f"Error reading CSV: {e}")
-    
+
     if single_stock:
         clean_stock = single_stock.replace('.NS', '').strip()
         if clean_stock in ALL_STOCKS:
@@ -1910,7 +1920,7 @@ def main_app():
                 st.rerun()
         else:
             st.error(f"{clean_stock} not found in master list. Please check the symbol (e.g., MCX, CIPLA).")
-    
+
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
     st.caption("Data sourced from Yahoo Finance. Updated: " + st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M"))
