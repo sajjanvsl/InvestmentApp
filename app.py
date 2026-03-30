@@ -282,16 +282,16 @@ class AlertSystem:
             <h2 style="color: #8B0000;">📈 {signal_type} Alert: {stock_name}</h2>
             <table style="border-collapse: collapse; width: 100%; max-width: 400px;">
                 <tr style="background-color: #f2f2f2;">
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong></td>
-                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Current Price:</strong> None
+                    <td style="padding: 10px; border: 1px solid #ddd;">₹{current_price:.2f} None
                 </tr>
                 <tr>
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Target Zone:</strong></td>
-                    <td style="padding: 10px; border: 1px solid #ddd;">{target_zone}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Target Zone:</strong> None
+                    <td style="padding: 10px; border: 1px solid #ddd;">{target_zone} None
                 </tr>
                 <tr style="background-color: #f2f2f2;">
-                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong></td>
-                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong> None
+                    <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} None
                 </tr>
             </table>
             <p style="margin-top: 20px; color: #666;">
@@ -635,7 +635,7 @@ def get_fundamental_data(ticker):
         profit_growth_5y = cagr(profit, years=5)
         profit_growth_3y = cagr(profit, years=3)
 
-        market_cap = info.get('marketCap', 0) / 1e7  # in crores
+        market_cap = info.get('marketCap', 0) / 1e7
 
         ebit_series = safe_get_series(financials, 'EBIT')
         ta_series = safe_get_series(balance_sheet, 'Total Assets')
@@ -686,7 +686,7 @@ def get_fundamental_data(ticker):
         pe = info.get('trailingPE', np.nan)
         ey = (1 / pe) * 100 if not pd.isna(pe) and pe > 0 else np.nan
 
-        # ROE calculation: net income / equity
+        # ROE
         net_income_latest = profit.iloc[0] if len(profit) > 0 else np.nan
         roe = (net_income_latest / equity) * 100 if equity and not pd.isna(equity) and not pd.isna(net_income_latest) and net_income_latest != 0 else np.nan
 
@@ -710,164 +710,114 @@ def get_fundamental_data(ticker):
             'current_price': current_price,
             'info': info
         }
-    except Exception as e:
+    except Exception:
         return None
 
 # ------------------------------
 # PIOTROSKI SCORE CALCULATION
 # ------------------------------
 def calculate_piotroski_score(ticker):
-    """
-    Compute Piotroski F-Score (0-9) based on 9 criteria:
-    1. Positive net income
-    2. Positive operating cash flow
-    3. Higher ROA (Return on Assets) than previous year
-    4. Operating cash flow > net income (quality of earnings)
-    5. Lower debt-to-assets ratio than previous year
-    6. Higher current ratio than previous year
-    7. No new shares issued (dilution)
-    8. Higher gross margin than previous year
-    9. Higher asset turnover ratio than previous year
-    """
     try:
         t = yf.Ticker(ticker)
         financials = t.financials
         balance = t.balance_sheet
         cashflow = t.cashflow
-
-        # Need at least two years of data for year-over-year comparisons
         if financials.empty or balance.empty or cashflow.empty:
-            return None
-
-        # Net Income
-        net_income = safe_get_series(financials, 'Net Income')
+            return 0
+        def get_series(df, key):
+            if df is not None and key in df.index:
+                vals = df.loc[key]
+                if isinstance(vals, pd.Series):
+                    vals = vals[vals.notna()]
+                    return vals
+            return pd.Series(dtype=float)
+        net_income = get_series(financials, 'Net Income')
         if len(net_income) < 1:
-            return None
+            return 0
         net_income_cur = net_income.iloc[0]
         net_income_prev = net_income.iloc[1] if len(net_income) > 1 else np.nan
-
-        # Operating Cash Flow
-        ocf = safe_get_series(cashflow, 'Operating Cash Flow')
+        ocf = get_series(cashflow, 'Operating Cash Flow')
         if len(ocf) < 1:
-            return None
+            return 0
         ocf_cur = ocf.iloc[0]
         ocf_prev = ocf.iloc[1] if len(ocf) > 1 else np.nan
-
-        # Total Assets
-        total_assets = safe_get_series(balance, 'Total Assets')
+        total_assets = get_series(balance, 'Total Assets')
         if len(total_assets) < 1:
-            return None
+            return 0
         ta_cur = total_assets.iloc[0]
         ta_prev = total_assets.iloc[1] if len(total_assets) > 1 else np.nan
-
-        # Current Assets and Current Liabilities for current ratio
-        current_assets = safe_get_series(balance, 'Current Assets')
-        current_liabilities = safe_get_series(balance, 'Current Liabilities')
+        current_assets = get_series(balance, 'Current Assets')
+        current_liabilities = get_series(balance, 'Current Liabilities')
         if len(current_assets) > 0 and len(current_liabilities) > 0:
             cr_cur = current_assets.iloc[0] / current_liabilities.iloc[0] if current_liabilities.iloc[0] != 0 else np.nan
             cr_prev = (current_assets.iloc[1] / current_liabilities.iloc[1]) if len(current_assets) > 1 and len(current_liabilities) > 1 and current_liabilities.iloc[1] != 0 else np.nan
         else:
             cr_cur = cr_prev = np.nan
-
-        # Long-term debt
-        ltd = safe_get_series(balance, 'Long Term Debt')
+        ltd = get_series(balance, 'Long Term Debt')
         ltd_cur = ltd.iloc[0] if len(ltd) > 0 else np.nan
         ltd_prev = ltd.iloc[1] if len(ltd) > 1 else np.nan
-
-        # Shares outstanding (dilution check)
-        shares = t.info.get('sharesOutstanding')
-        shares_prev = None  # not easily available from yfinance, we'll skip or use a fallback
-        # Instead, we can check if total common shares outstanding changed by comparing with previous year
-        # But yfinance does not provide historical shares easily. We'll omit this criterion or use a placeholder.
-        # For simplicity, we'll skip criterion 7 (no new shares) as it's often not reliable.
-
-        # Gross margin = Gross Profit / Revenue
-        gross_profit = safe_get_series(financials, 'Gross Profit')
-        revenue = safe_get_series(financials, 'Total Revenue')
+        gross_profit = get_series(financials, 'Gross Profit')
+        revenue = get_series(financials, 'Total Revenue')
         if len(gross_profit) > 0 and len(revenue) > 0:
             gm_cur = gross_profit.iloc[0] / revenue.iloc[0] if revenue.iloc[0] != 0 else np.nan
             gm_prev = (gross_profit.iloc[1] / revenue.iloc[1]) if len(gross_profit) > 1 and len(revenue) > 1 and revenue.iloc[1] != 0 else np.nan
         else:
             gm_cur = gm_prev = np.nan
-
-        # Asset turnover = Revenue / Total Assets
         at_cur = revenue.iloc[0] / ta_cur if len(revenue) > 0 and ta_cur != 0 else np.nan
         at_prev = revenue.iloc[1] / ta_prev if len(revenue) > 1 and ta_prev != 0 else np.nan
-
-        # Compute criteria
         score = 0
-        # 1. Positive net income
         if net_income_cur > 0:
             score += 1
-        # 2. Positive operating cash flow
         if ocf_cur > 0:
             score += 1
-        # 3. Higher ROA (Net Income / Total Assets) than previous year
         roa_cur = net_income_cur / ta_cur if ta_cur != 0 else np.nan
         roa_prev = net_income_prev / ta_prev if not pd.isna(net_income_prev) and ta_prev != 0 else np.nan
         if not pd.isna(roa_cur) and not pd.isna(roa_prev) and roa_cur > roa_prev:
             score += 1
-        # 4. Operating cash flow > net income (quality)
         if not pd.isna(ocf_cur) and not pd.isna(net_income_cur) and ocf_cur > net_income_cur:
             score += 1
-        # 5. Lower debt-to-assets ratio than previous year
         debt_assets_cur = ltd_cur / ta_cur if not pd.isna(ltd_cur) and ta_cur != 0 else np.nan
         debt_assets_prev = ltd_prev / ta_prev if not pd.isna(ltd_prev) and ta_prev != 0 else np.nan
         if not pd.isna(debt_assets_cur) and not pd.isna(debt_assets_prev) and debt_assets_cur < debt_assets_prev:
             score += 1
-        # 6. Higher current ratio than previous year
         if not pd.isna(cr_cur) and not pd.isna(cr_prev) and cr_cur > cr_prev:
             score += 1
-        # 7. No new shares issued (dilution) - skipping due to lack of data, but we'll assume no dilution if shares outstanding is available and not increased significantly.
-        # We'll skip this criterion for now, but can add if we get historical shares.
-        # 8. Higher gross margin than previous year
         if not pd.isna(gm_cur) and not pd.isna(gm_prev) and gm_cur > gm_prev:
             score += 1
-        # 9. Higher asset turnover than previous year
         if not pd.isna(at_cur) and not pd.isna(at_prev) and at_cur > at_prev:
             score += 1
-
         return score
     except Exception:
-        return None
+        return 0
 
 # ------------------------------
 # ROBUST FAIR VALUE CALCULATION
 # ------------------------------
 def get_reliable_eps_and_growth(ticker, current_price):
-    """
-    Returns (eps, growth) tuple with sanity checks.
-    """
     fund = get_fundamental_data(ticker)
     if not fund:
         return None, None
 
     eps = None
     info = fund.get('info', {})
-    # Try trailing EPS
     eps = info.get('trailingEps')
     if eps is None or eps <= 0:
-        # Try via trailing PE
         pe = info.get('trailingPE')
         if pe and pe > 0 and current_price > 0:
             eps = current_price / pe
     if eps is None or eps <= 0:
-        # Compute from net profit / shares
-        net_profit = fund.get('net_profit')  # in crores
+        net_profit = fund.get('net_profit')
         shares = info.get('sharesOutstanding')
         if net_profit and shares and shares > 0:
             eps = (net_profit * 1e7) / shares
-    # Sanity: EPS shouldn't be too high relative to price
-    if eps and current_price > 0:
-        if eps > current_price * 2:
-            eps = None  # discard unreasonable
+    if eps and current_price > 0 and eps > current_price * 2:
+        eps = None
 
-    # Get growth (capped at 30%)
     growth = fund.get('profit_growth_3y')
     if not growth or growth <= 0:
         growth = fund.get('profit_growth_5y')
     if not growth or growth <= 0:
-        growth = 10  # default
+        growth = 10
     growth = min(growth, 30)
 
     return eps, growth
@@ -876,11 +826,9 @@ def get_reliable_fair_value(ticker, current_price):
     eps, growth = get_reliable_eps_and_growth(ticker, current_price)
     if eps and eps > 0 and growth > 0:
         fair_value = eps * growth * 1.5
-        # Sanity check
         if 0.5 * current_price <= fair_value <= 5 * current_price:
             return fair_value
-    # Fallback: simple estimate
-    return current_price * 1.2  # rough 20% upside
+    return current_price * 1.2
 
 # ------------------------------
 # SCREEN STOCK FUNCTION (for holdings recommendations)
@@ -1161,94 +1109,6 @@ def intraday_picks():
     return sorted(picks, key=lambda x: x['Score'], reverse=True)
 
 # ------------------------------
-# NEW SWING SCANNER (Fundamental + Technical)
-# ------------------------------
-def swing_scanner_fundamental_technical():
-    """
-    Scans all stocks and returns those that meet:
-    - Fundamental: MktCap>10000, SalesGr3Y>20, ProfitGr3Y>20, Promoter>50, ROCE>15, ROE>15, Piotroski>5
-    - Technical: Price > 20EMA, 3-day high breakout (today's high > max(high of previous 2 days) and today's close > max(close of previous 2 days))
-    Returns list of signals with entry, SL, targets.
-    """
-    results = []
-    total = len(ALL_STOCKS)
-    progress_bar = st.progress(0, text="Scanning stocks...")
-    for i, (name, ticker) in enumerate(ALL_STOCKS.items()):
-        progress_bar.progress((i+1)/total)
-        # Fundamental data
-        fund = get_fundamental_data(ticker)
-        if not fund:
-            continue
-        # Check fundamental filters
-        mkt_cap = fund.get('market_cap', 0)
-        sales_gr = fund.get('sales_growth_3y', 0)
-        profit_gr = fund.get('profit_growth_3y', 0)
-        promoter = fund.get('promoter', 0)
-        roce = fund.get('roce', 0)
-        roe = fund.get('roe', 0)
-        piotroski = calculate_piotroski_score(ticker)
-        if piotroski is None:
-            piotroski = 0  # fallback
-
-        if not (mkt_cap > 10000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski > 5):
-            continue
-
-        # Technical data (daily)
-        df = get_price_data(ticker)
-        if df.empty or len(df) < 30:
-            continue
-        close = df['Close']
-        high = df['High']
-        low = df['Low']
-        volume = df['Volume']
-
-        # 20 EMA
-        ema20 = close.ewm(span=20, adjust=False).mean()
-        last_price = close.iloc[-1]
-        last_ema20 = ema20.iloc[-1]
-
-        # Check price above 20 EMA
-        if last_price <= last_ema20:
-            continue
-
-        # 3-day high breakout: today's high > max(high of previous 2 days) and today's close > max(close of previous 2 days)
-        if len(close) < 3:
-            continue
-        prev_2_high_max = max(high.iloc[-3:-1])  # high of day -2 and -1
-        prev_2_close_max = max(close.iloc[-3:-1])
-        if not (high.iloc[-1] > prev_2_high_max and close.iloc[-1] > prev_2_close_max):
-            continue
-
-        # Additional volume check (optional: volume > avg volume)
-        avg_vol = volume.rolling(20).mean().iloc[-1]
-        if volume.iloc[-1] < 0.8 * avg_vol:
-            continue  # require decent volume
-
-        # Compute entry, stop loss, targets
-        entry = close.iloc[-1]
-        # SL = low of second day (the day before yesterday)
-        sl = low.iloc[-2]  # previous day's low (day -1)
-        risk = entry - sl
-        target1 = entry + 2 * risk
-        target2 = entry + 3 * risk  # 1:3
-
-        results.append({
-            'Stock': name,
-            'Price': round(entry, 2),
-            'SL': round(sl, 2),
-            'Target 1:2': round(target1, 2),
-            'Target 1:3': round(target2, 2),
-            'Risk': round(risk, 2),
-            'Piotroski': piotroski,
-            'ROCE': round(roce, 1),
-            'ROE': round(roe, 1),
-            'Sales Gr%': round(sales_gr, 1),
-            'Profit Gr%': round(profit_gr, 1)
-        })
-    progress_bar.empty()
-    return results
-
-# ------------------------------
 # LOGIN PAGE
 # ------------------------------
 def show_login():
@@ -1446,12 +1306,11 @@ def main_app():
         st.write("If data fetch fails, try running this command in your terminal:")
         st.code("pip install --upgrade yfinance")
 
-    # ========== TABS (Now 4) ==========
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # ========== TABS (Only 3) ==========
+    tab1, tab2, tab3 = st.tabs([
         "🤖 AI Swing Trading Scanner", 
         "🤖 AI Intraday Picks",
-        "📊 Custom Fair Value + Final Portfolio Action",
-        "📈 Swing Scanner (Fundamental + Technical)"
+        "📊 Custom Fair Value + Final Portfolio Action"
     ])
 
     # ----- Tab 1: AI Swing Scanner -----
@@ -1834,226 +1693,8 @@ def main_app():
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
-                 # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
-    with tab4:
-        st.markdown("## 📈 Stocks Meeting All Fundamental Criteria")
-        st.caption("**Filters:** Market Cap ₹10,000 Cr – ₹100,000 Cr, Sales growth 3Y > 20%, Profit growth 3Y > 20%, Promoter holding > 50%, ROCE > 15%, ROE > 15%, Piotroski Score ≥ 5")
+    st.markdown("---")
 
-        # List of the 18 stocks from screener.in (with correct Yahoo Finance symbols)
-        screener_stocks = {
-            "International Ge": "INTLGE.NS",
-            "Mazagon Dock": "MAZDOCK.NS",         # already in ALL_STOCKS
-            "Travel Food": "TRAVELFOOD.NS",
-            "Triveni Turbine": "TRIVENITURB.NS",
-            "Premier Energies": "PREMIERENE.NS",
-            "Garden Reach": "GARDENREACH.NS",
-            "Waaree Energies": "WAAREEENER.NS",   # already in ALL_STOCKS
-            "Astrazeneca Pharma": "ASTRAZENECA.NS",
-            "Force Motors": "FORCEMOT.NS",
-            "Emmvee Photovol": "EMMVEE.NS",
-            "Inventurus Knowl": "INVENTURUS.NS",
-            "Jain Resource": "JAINRES.NS",
-            "Godfrey Phillips": "GODFREY.NS",
-            "Rubicon Research": "RUBICON.NS",
-            "Lumax Auto Tech": "LUMAXAUTO.NS",
-            "Torrent Power": "TORNTPOWER.NS",     # already in ALL_STOCKS? Add if not
-            "TVS Holdings": "TVSHOLD.NS",
-            "Kalyan Jewellers": "KALYANJEW.NS"
-        }
-
-        # Helper functions (get_fundamental_metrics, calculate_piotroski_score) are assumed to exist elsewhere.
-        # If not, define them here (they are already in the main script, but we'll ensure they're available).
-
-        def get_fundamental_metrics(ticker):
-            fund = get_fundamental_data(ticker)
-            if not fund:
-                return None
-            mkt_cap = fund.get('market_cap', 0)
-            sales_gr = fund.get('sales_growth_3y')
-            if pd.isna(sales_gr):
-                sales_gr = fund.get('sales_growth_5y')
-            if pd.isna(sales_gr):
-                sales_gr = 0
-            profit_gr = fund.get('profit_growth_3y')
-            if pd.isna(profit_gr):
-                profit_gr = fund.get('profit_growth_5y')
-            if pd.isna(profit_gr):
-                profit_gr = 0
-            promoter = fund.get('promoter')
-            if pd.isna(promoter):
-                promoter = fund.get('info', {}).get('heldPercentInsiders', 0)
-            if pd.isna(promoter):
-                promoter = 0
-            roce = fund.get('roce')
-            if pd.isna(roce):
-                roce = 0
-            roe = fund.get('roe')
-            if pd.isna(roe):
-                roe = 0
-            return {
-                'mkt_cap': mkt_cap,
-                'sales_gr': sales_gr,
-                'profit_gr': profit_gr,
-                'promoter': promoter,
-                'roce': roce,
-                'roe': roe
-            }
-
-        def calculate_piotroski_score(ticker):
-            # (same robust function as before)
-            try:
-                t = yf.Ticker(ticker)
-                financials = t.financials
-                balance = t.balance_sheet
-                cashflow = t.cashflow
-                if financials.empty or balance.empty or cashflow.empty:
-                    return 0
-                def get_series(df, key):
-                    if df is not None and key in df.index:
-                        vals = df.loc[key]
-                        if isinstance(vals, pd.Series):
-                            vals = vals[vals.notna()]
-                            return vals
-                    return pd.Series(dtype=float)
-                net_income = get_series(financials, 'Net Income')
-                if len(net_income) < 1:
-                    return 0
-                net_income_cur = net_income.iloc[0]
-                net_income_prev = net_income.iloc[1] if len(net_income) > 1 else np.nan
-                ocf = get_series(cashflow, 'Operating Cash Flow')
-                if len(ocf) < 1:
-                    return 0
-                ocf_cur = ocf.iloc[0]
-                ocf_prev = ocf.iloc[1] if len(ocf) > 1 else np.nan
-                total_assets = get_series(balance, 'Total Assets')
-                if len(total_assets) < 1:
-                    return 0
-                ta_cur = total_assets.iloc[0]
-                ta_prev = total_assets.iloc[1] if len(total_assets) > 1 else np.nan
-                current_assets = get_series(balance, 'Current Assets')
-                current_liabilities = get_series(balance, 'Current Liabilities')
-                if len(current_assets) > 0 and len(current_liabilities) > 0:
-                    cr_cur = current_assets.iloc[0] / current_liabilities.iloc[0] if current_liabilities.iloc[0] != 0 else np.nan
-                    cr_prev = (current_assets.iloc[1] / current_liabilities.iloc[1]) if len(current_assets) > 1 and len(current_liabilities) > 1 and current_liabilities.iloc[1] != 0 else np.nan
-                else:
-                    cr_cur = cr_prev = np.nan
-                ltd = get_series(balance, 'Long Term Debt')
-                ltd_cur = ltd.iloc[0] if len(ltd) > 0 else np.nan
-                ltd_prev = ltd.iloc[1] if len(ltd) > 1 else np.nan
-                gross_profit = get_series(financials, 'Gross Profit')
-                revenue = get_series(financials, 'Total Revenue')
-                if len(gross_profit) > 0 and len(revenue) > 0:
-                    gm_cur = gross_profit.iloc[0] / revenue.iloc[0] if revenue.iloc[0] != 0 else np.nan
-                    gm_prev = (gross_profit.iloc[1] / revenue.iloc[1]) if len(gross_profit) > 1 and len(revenue) > 1 and revenue.iloc[1] != 0 else np.nan
-                else:
-                    gm_cur = gm_prev = np.nan
-                at_cur = revenue.iloc[0] / ta_cur if len(revenue) > 0 and ta_cur != 0 else np.nan
-                at_prev = revenue.iloc[1] / ta_prev if len(revenue) > 1 and ta_prev != 0 else np.nan
-                score = 0
-                if net_income_cur > 0:
-                    score += 1
-                if ocf_cur > 0:
-                    score += 1
-                roa_cur = net_income_cur / ta_cur if ta_cur != 0 else np.nan
-                roa_prev = net_income_prev / ta_prev if not pd.isna(net_income_prev) and ta_prev != 0 else np.nan
-                if not pd.isna(roa_cur) and not pd.isna(roa_prev) and roa_cur > roa_prev:
-                    score += 1
-                if not pd.isna(ocf_cur) and not pd.isna(net_income_cur) and ocf_cur > net_income_cur:
-                    score += 1
-                debt_assets_cur = ltd_cur / ta_cur if not pd.isna(ltd_cur) and ta_cur != 0 else np.nan
-                debt_assets_prev = ltd_prev / ta_prev if not pd.isna(ltd_prev) and ta_prev != 0 else np.nan
-                if not pd.isna(debt_assets_cur) and not pd.isna(debt_assets_prev) and debt_assets_cur < debt_assets_prev:
-                    score += 1
-                if not pd.isna(cr_cur) and not pd.isna(cr_prev) and cr_cur > cr_prev:
-                    score += 1
-                if not pd.isna(gm_cur) and not pd.isna(gm_prev) and gm_cur > gm_prev:
-                    score += 1
-                if not pd.isna(at_cur) and not pd.isna(at_prev) and at_cur > at_prev:
-                    score += 1
-                return score
-            except Exception:
-                return 0
-
-        # --- Scan only the screener stocks ---
-        def scan_fundamentals():
-            qualified = []
-            debug_data = []
-            total = len(screener_stocks)
-            progress_bar = st.progress(0, text="Scanning fundamentals...")
-            for i, (name, ticker) in enumerate(screener_stocks.items()):
-                progress_bar.progress((i+1)/total)
-                metrics = get_fundamental_metrics(ticker)
-                if not metrics:
-                    debug_data.append({
-                        'Stock': name,
-                        'Status': 'No data',
-                        'Mkt Cap': 'N/A',
-                        'Sales Gr%': 'N/A',
-                        'Profit Gr%': 'N/A',
-                        'Promoter %': 'N/A',
-                        'ROCE %': 'N/A',
-                        'ROE %': 'N/A',
-                        'Piotroski': 'N/A'
-                    })
-                    continue
-                mkt_cap = metrics['mkt_cap']
-                sales_gr = metrics['sales_gr']
-                profit_gr = metrics['profit_gr']
-                promoter = metrics['promoter']
-                roce = metrics['roce']
-                roe = metrics['roe']
-                piotroski = calculate_piotroski_score(ticker)
-
-                # Add to debug table
-                debug_data.append({
-                    'Stock': name,
-                    'Status': 'Pass' if (10000 < mkt_cap < 100000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski >= 5) else 'Fail',
-                    'Mkt Cap': round(mkt_cap, 0) if mkt_cap != 0 else 'Missing',
-                    'Sales Gr%': round(sales_gr, 1) if sales_gr != 0 else 'Missing',
-                    'Profit Gr%': round(profit_gr, 1) if profit_gr != 0 else 'Missing',
-                    'Promoter %': round(promoter, 1) if promoter != 0 else 'Missing',
-                    'ROCE %': round(roce, 1) if roce != 0 else 'Missing',
-                    'ROE %': round(roe, 1) if roe != 0 else 'Missing',
-                    'Piotroski': piotroski if piotroski != 0 else 'Missing'
-                })
-
-                # Check qualification
-                if (10000 < mkt_cap < 100000 and 
-                    sales_gr > 20 and profit_gr > 20 and 
-                    promoter > 50 and roce > 15 and roe > 15 and 
-                    piotroski >= 5):
-                    qualified.append({
-                        'Stock': name,
-                        'Mkt Cap (Cr)': round(mkt_cap, 0),
-                        'Sales Gr%': round(sales_gr, 1),
-                        'Profit Gr%': round(profit_gr, 1),
-                        'Promoter %': round(promoter, 1),
-                        'ROCE %': round(roce, 1),
-                        'ROE %': round(roe, 1),
-                        'Piotroski': piotroski
-                    })
-            progress_bar.empty()
-            return qualified, debug_data
-
-        with st.spinner("Fetching data for the 18 screener stocks..."):
-            qualified_stocks, debug_data = scan_fundamentals()
-
-        # Display qualified stocks
-        if qualified_stocks:
-            st.markdown("### ✅ Stocks That Pass All Filters")
-            df_qualified = pd.DataFrame(qualified_stocks)
-            st.dataframe(df_qualified, use_container_width=True, hide_index=True)
-        else:
-            st.info("No stocks from the screener list passed all filters. See debug table below for details.")
-
-        # Debug table (always shows all 18 stocks with their actual metrics)
-        with st.expander("🔍 Debug: Full Details of the 18 Screener Stocks"):
-            if debug_data:
-                df_debug = pd.DataFrame(debug_data)
-                st.dataframe(df_debug, use_container_width=True, hide_index=True)
-                st.caption("'Missing' indicates the field was not available from Yahoo Finance. 'N/A' means no fundamental data at all for that symbol.")
-            else:
-                st.write("No debug data available.")
     # ------------------------------
     # HOLDINGS SECTION
     # ------------------------------
@@ -2132,13 +1773,13 @@ def main_app():
         st.markdown("## 📊 Your Holdings")
         st.dataframe(st.session_state.portfolio_df, use_container_width=True)
         
-        # Editable target prices
+        # Editable target prices (individual text inputs)
         st.markdown("### ✏️ Set Custom Target Prices for Alerts")
         st.caption("Enter target prices (comma‑separated) for each stock. You will receive alerts when the price reaches any of these levels.")
-        
+
         # Get existing targets
         target_dict = st.session_state.target_prices
-        
+
         # Create editable fields
         updated = False
         for stock in st.session_state.portfolio_df['Stock'].unique():
@@ -2156,7 +1797,7 @@ def main_app():
                     new_targets = []
                 target_dict[stock] = new_targets
                 updated = True
-        
+
         if updated:
             st.session_state.target_prices = target_dict
             save_target_prices(target_dict)
