@@ -549,6 +549,7 @@ def get_intraday_data(ticker):
 HOLDINGS_FILE = "holdings_data.json"
 SOLD_FILE = "sold_history.json"
 ALERT_PRICES_FILE = "alert_prices.json"
+INTRADAY_ALERTS_FILE = "intraday_alerts.json"
 
 def load_holdings():
     if os.path.exists(HOLDINGS_FILE):
@@ -601,6 +602,19 @@ def load_alert_prices():
 
 def save_alert_prices(alert_dict):
     with open(ALERT_PRICES_FILE, 'w') as f:
+        json.dump(alert_dict, f, indent=2)
+
+def load_intraday_alerts():
+    if os.path.exists(INTRADAY_ALERTS_FILE):
+        try:
+            with open(INTRADAY_ALERTS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_intraday_alerts(alert_dict):
+    with open(INTRADAY_ALERTS_FILE, 'w') as f:
         json.dump(alert_dict, f, indent=2)
 
 # ------------------------------
@@ -1201,6 +1215,8 @@ def main_app():
         st.session_state.alert_system = AlertSystem()
     if 'alerts_sent_this_session' not in st.session_state:
         st.session_state.alerts_sent_this_session = set()
+    if 'intraday_alerts' not in st.session_state:
+        st.session_state.intraday_alerts = load_intraday_alerts()
 
     # Sync alert settings from stored settings
     st.session_state.email_enabled = st.session_state.settings.get('email_enabled', False)
@@ -1386,6 +1402,38 @@ def main_app():
             intraday_df = intraday_df[[col for col in display_cols if col in intraday_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df, width='stretch')
+            
+            # Auto-alerts for intraday picks (with cooldown per stock per day)
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            intraday_alerts = st.session_state.intraday_alerts
+            updated = False
+            for _, row in intraday_df.iterrows():
+                stock = row['Stock']
+                signal_type = row['Signal']
+                entry = row['Entry']
+                target = row['Target']
+                stop_loss = row['Stop Loss']
+                key = f"intraday_{stock}_{signal_type}_{today_str}"
+                if key not in intraday_alerts:
+                    # Send alert
+                    target_zone = f"Entry: ₹{entry}, Target: ₹{target}, SL: ₹{stop_loss}"
+                    if st.session_state.get('telegram_enabled', False):
+                        st.session_state.alert_system.send_telegram_alert(
+                            stock, entry, target, 
+                            signal_type=f"Intraday {signal_type} Signal",
+                            target_zone=target_zone
+                        )
+                    if st.session_state.get('email_enabled', False):
+                        st.session_state.alert_system.send_email_alert(
+                            stock, entry, target,
+                            signal_type=f"Intraday {signal_type} Signal",
+                            target_zone=target_zone
+                        )
+                    intraday_alerts[key] = True
+                    updated = True
+            if updated:
+                st.session_state.intraday_alerts = intraday_alerts
+                save_intraday_alerts(intraday_alerts)
         else:
             no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
 
@@ -1564,6 +1612,9 @@ def main_app():
                 else:
                     allocation = "0–2%"
 
+                # Piotroski score
+                piotroski = calculate_piotroski_score(ticker)
+
                 verdict_map = {
                     "HDFCBANK": "Core Compounder - Banking leader",
                     "VBL": "Strong Growth - Beverage giant",
@@ -1606,6 +1657,7 @@ def main_app():
                     'Sell Zone (₹)': f"₹{round(sell_zone_low, 2)} – ₹{round(sell_zone_high, 2)}",
                     'Allocation': allocation,
                     'Verdict': verdict,
+                    'Piotroski': piotroski,
                     'Buy Zone Low': buy_zone_low,
                     'Buy Zone High': buy_zone_high,
                     'Sell Zone Low': sell_zone_low,
