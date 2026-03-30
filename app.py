@@ -1834,12 +1834,14 @@ def main_app():
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
-            # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
+               # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
     with tab4:
         st.markdown("## 📈 Stocks Meeting All Fundamental Criteria")
         st.caption("**Filters:** Market Cap ₹10,000 Cr – ₹100,000 Cr, Sales growth 3Y > 20%, Profit growth 3Y > 20%, Promoter holding > 50%, ROCE > 15%, ROE > 15%, Piotroski Score ≥ 5")
 
-        # --- Helper function to get reliable fundamental metrics (same as before) ---
+        # Helper functions (get_fundamental_metrics, calculate_piotroski_score) are assumed to exist elsewhere.
+        # If not, define them here (they are already in the main script, but we'll ensure they're available).
+
         def get_fundamental_metrics(ticker):
             fund = get_fundamental_data(ticker)
             if not fund:
@@ -1875,8 +1877,8 @@ def main_app():
                 'roe': roe
             }
 
-        # --- Piotroski function (same as before, but we'll reuse if defined elsewhere) ---
         def calculate_piotroski_score(ticker):
+            # (same robust function as before)
             try:
                 t = yf.Ticker(ticker)
                 financials = t.financials
@@ -1950,7 +1952,6 @@ def main_app():
             except Exception:
                 return 0
 
-        # --- Main scanning function with debug output ---
         def scan_fundamentals(debug_mode=False):
             qualified = []
             debug_data = []
@@ -1963,7 +1964,7 @@ def main_app():
                     if debug_mode:
                         debug_data.append({
                             'Stock': name,
-                            'Status': 'No fundamental data',
+                            'Status': 'No data',
                             'Mkt Cap': 'N/A',
                             'Sales Gr%': 'N/A',
                             'Profit Gr%': 'N/A',
@@ -1980,7 +1981,7 @@ def main_app():
                 roce = metrics['roce']
                 roe = metrics['roe']
                 piotroski = calculate_piotroski_score(ticker)
-                # Collect all metrics for debug
+                # Add to debug table
                 if debug_mode:
                     debug_data.append({
                         'Stock': name,
@@ -1993,7 +1994,7 @@ def main_app():
                         'ROE %': round(roe, 1) if roe != 0 else 'Missing',
                         'Piotroski': piotroski if piotroski != 0 else 'Missing'
                     })
-                # Check if qualifies
+                # Check qualification
                 if (10000 < mkt_cap < 100000 and 
                     sales_gr > 20 and profit_gr > 20 and 
                     promoter > 50 and roce > 15 and roe > 15 and 
@@ -2011,7 +2012,6 @@ def main_app():
             progress_bar.empty()
             return qualified, debug_data
 
-        # --- Run scanner ---
         with st.spinner("Fetching fundamentally qualified stocks..."):
             qualified_stocks, debug_data = scan_fundamentals(debug_mode=True)
 
@@ -2021,37 +2021,13 @@ def main_app():
         else:
             st.info("No stocks passed all filters. Use the debug table below to see why each stock failed.")
 
-        # --- Debug table ---
         with st.expander("🔍 Debug: Why stocks are failing"):
             if debug_data:
                 df_debug = pd.DataFrame(debug_data)
                 st.dataframe(df_debug, use_container_width=True, hide_index=True)
-                st.caption("'Missing' indicates the data was not available from Yahoo Finance.")
+                st.caption("'Missing' indicates the data was not available from Yahoo Finance. 'N/A' means no fundamental data at all.")
             else:
                 st.write("No debug data available.")
-
-        # --- Additional manual debug for a specific stock ---
-        with st.expander("🔍 Manual Debug: Inspect a single stock"):
-            debug_stock = st.selectbox("Select stock to inspect", list(ALL_STOCKS.keys()))
-            if debug_stock:
-                ticker = ALL_STOCKS[debug_stock]
-                fund = get_fundamental_data(ticker)
-                if fund:
-                    metrics = get_fundamental_metrics(ticker)
-                    st.write("### Raw Metrics")
-                    st.json({
-                        'Market Cap (Cr)': metrics['mkt_cap'],
-                        'Sales Growth 3Y': fund.get('sales_growth_3y'),
-                        'Profit Growth 3Y': fund.get('profit_growth_3y'),
-                        'Promoter %': metrics['promoter'],
-                        'ROCE %': metrics['roce'],
-                        'ROE %': metrics['roe'],
-                        'Piotroski Score': calculate_piotroski_score(ticker)
-                    })
-                    st.write("### Full Info (selected fields)")
-                    st.json({k: fund.get(k) for k in ['sales_growth_3y', 'profit_growth_3y', 'roce', 'roe', 'promoter', 'market_cap', 'current_price']})
-                else:
-                    st.error("No fundamental data available.")
     # ------------------------------
     # HOLDINGS SECTION
     # ------------------------------
