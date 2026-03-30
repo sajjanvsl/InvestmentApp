@@ -642,6 +642,329 @@ def get_fundamental_data(ticker):
         cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
         roce_values = []
         for i in range(min(len(ebit_series), len(ta_series), len(cl_series))):
+            ebit = ebi        if not st.session_state.get('telegram_enabled', False):
+            return False
+            
+        bot_token = st.session_state.get('telegram_bot_token', '')
+        chat_id = st.session_state.get('telegram_chat_id', '')
+        
+        if not all([bot_token, chat_id]):
+            return False
+            
+        message = f"""🚨 {signal_type} ALERT: {stock_name}
+
+Current Price: ₹{current_price:.2f}
+Target Zone: {target_zone}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+This is an automated alert from Quant Fund Manager."""
+        
+        try:
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {
+                'chat_id': chat_id,
+                'text': message
+            }
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                return True
+            else:
+                st.error(f"Telegram error: {response.text}")
+                return False
+        except Exception as e:
+            st.error(f"Telegram failed: {str(e)}")
+            return False
+    
+    def check_and_send_alerts(self, stock_name, current_price, target_prices):
+        alerts_sent = []
+        for target_price in target_prices:
+            key = f"price_target_{stock_name}_{target_price}"
+            if self.should_send_alert(key):
+                if st.session_state.get('email_enabled', False):
+                    if self.send_email_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
+                        alerts_sent.append(f"Email at ₹{target_price:.2f}")
+                if st.session_state.get('telegram_enabled', False):
+                    if self.send_telegram_alert(stock_name, current_price, target_price, "Price Target", f"₹{target_price:.2f}"):
+                        alerts_sent.append(f"Telegram at ₹{target_price:.2f}")
+        return alerts_sent
+
+# ------------------------------
+# SETTINGS PERSISTENCE
+# ------------------------------
+SETTINGS_FILE = "settings.json"
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        "email_enabled": False,
+        "email_sender": "",
+        "email_password": "",
+        "email_recipient": "sajjanvsl@gmail.com",
+        "telegram_enabled": False,
+        "telegram_bot_token": "",
+        "telegram_chat_id": ""
+    }
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f, indent=2)
+
+# ------------------------------
+# AUTHENTICATION FUNCTIONS
+# ------------------------------
+USERS_FILE = "users.json"
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    else:
+        default_users = {
+            "admin": hash_password("admin123")
+        }
+        with open(USERS_FILE, 'w') as f:
+            json.dump(default_users, f)
+        return default_users
+
+def save_users(users):
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f)
+
+def check_login(username, password):
+    users = load_users()
+    if username in users and users[username] == hash_password(password):
+        return True
+    return False
+
+def reset_password(username, new_password):
+    users = load_users()
+    if username in users:
+        users[username] = hash_password(new_password)
+        save_users(users)
+        return True
+    return False
+
+# Initialize session state for authentication
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
+
+# ------------------------------
+# MASTER STOCK LIST (all NSE stocks)
+# ------------------------------
+ALL_STOCKS = {
+    "CIPLA": "CIPLA.NS",
+    "ICICIAMC": "ICICIAMC.NS",
+    "GANESHHOU": "GANESHHOU.NS",
+    "TCS": "TCS.NS",
+    "MON100": "MON100.NS",
+    "BSE": "BSE.NS",
+    "TMCV": "TMCV.NS",
+    "IRCTC": "IRCTC.NS",
+    "SILVERBEES": "SILVERBEES.NS",
+    "HDFCBANK": "HDFCBANK.NS",
+    "HAL": "HAL.NS",
+    "VBL": "VBL.NS",
+    "MAZDOCK": "MAZDOCK.NS",
+    "ADANIPORTS": "ADANIPORTS.NS",
+    "TRENT": "TRENT.NS",
+    "GOLDBEES": "GOLDBEES.NS",
+    "LIQUIDBEES": "LIQUIDBEES.NS",
+    "SMALL250": "SMALL250.NS",
+    "ASTRAL": "ASTRAL.NS",
+    "TRUALT": "TRUALT.NS",
+    "TMPV": "TMPV.NS",
+    "IREDA": "IREDA.NS",
+    "ANANTRAJ": "ANANTRAJ.NS",
+    "WAAREEENER": "WAAREEENER.NS",
+    "BAJAJHFL": "BAJAJHFL.NS",
+    "JIOFIN": "JIOFIN.NS",
+    "NHPC": "NHPC.NS",
+    "AWHCL": "AWHCL.NS",
+    "ECORECO": "ECORECO.NS",
+    "EPACKPEB": "EPACKPEB.NS",
+    "NATPLASTI": "NATPLASTI.NS",
+    "SETL": "SETL.NS",
+    "TDPOWERSYS": "TDPOWERSYS.NS",
+    "MCX": "MCX.NS"
+}
+
+# ------------------------------
+# DATA FETCHING FUNCTIONS
+# ------------------------------
+def debug_data_fetch(ticker):
+    try:
+        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        if df.empty:
+            return "❌ No data"
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        close = df['Close'].squeeze()
+        if isinstance(close, pd.Series):
+            last_close = close.iloc[-1]
+        else:
+            last_close = close
+        return f"✅ Data shape: {df.shape}, Last close: {last_close:.2f}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_price_data(ticker):
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True, progress=False)
+            if df.empty:
+                if attempt == max_retries - 1:
+                    return pd.DataFrame()
+                time.sleep(2)
+                continue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df.dropna(inplace=True)
+            return df
+        except Exception:
+            if attempt == max_retries - 1:
+                return pd.DataFrame()
+            time.sleep(2)
+    return pd.DataFrame()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_intraday_data(ticker):
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
+            if df.empty:
+                return pd.DataFrame()
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df.dropna(inplace=True)
+            return df
+        except Exception:
+            if attempt == max_retries - 1:
+                return pd.DataFrame()
+            time.sleep(1)
+    return pd.DataFrame()
+
+# ------------------------------
+# DATA PERSISTENCE
+# ------------------------------
+HOLDINGS_FILE = "holdings_data.json"
+SOLD_FILE = "sold_history.json"
+TARGET_PRICES_FILE = "target_prices.json"
+
+def load_holdings():
+    if os.path.exists(HOLDINGS_FILE):
+        try:
+            with open(HOLDINGS_FILE, 'r') as f:
+                data = json.load(f)
+            if data:
+                return pd.DataFrame(data)
+        except:
+            pass
+    return None
+
+def save_holdings(df):
+    if df is not None and not df.empty:
+        records = df.to_dict(orient='records')
+        with open(HOLDINGS_FILE, 'w') as f:
+            json.dump(records, f, indent=2)
+    else:
+        if os.path.exists(HOLDINGS_FILE):
+            os.remove(HOLDINGS_FILE)
+
+def load_sold():
+    if os.path.exists(SOLD_FILE):
+        try:
+            with open(SOLD_FILE, 'r') as f:
+                data = json.load(f)
+            if data:
+                return pd.DataFrame(data)
+        except:
+            pass
+    return pd.DataFrame(columns=['Stock', 'Qty', 'Avg Price', 'Sell Price', 'Sell Date', 'P&L'])
+
+def save_sold(df):
+    if df is not None and not df.empty:
+        records = df.to_dict(orient='records')
+        with open(SOLD_FILE, 'w') as f:
+            json.dump(records, f, indent=2)
+    else:
+        if os.path.exists(SOLD_FILE):
+            os.remove(SOLD_FILE)
+
+def load_target_prices():
+    if os.path.exists(TARGET_PRICES_FILE):
+        try:
+            with open(TARGET_PRICES_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_target_prices(target_dict):
+    with open(TARGET_PRICES_FILE, 'w') as f:
+        json.dump(target_dict, f, indent=2)
+
+# ------------------------------
+# FUNDAMENTAL FETCHING
+# ------------------------------
+def safe_get_series(df, key):
+    if df is not None and key in df.index:
+        vals = df.loc[key]
+        if isinstance(vals, pd.Series):
+            vals = vals[vals.notna()]
+            if len(vals) > 0:
+                return vals
+    return pd.Series(dtype=float)
+
+def cagr(series, years=5):
+    if len(series) < 2:
+        return np.nan
+    idx = min(years, len(series)-1)
+    latest = series.iloc[0]
+    past = series.iloc[idx]
+    if past == 0 or np.isnan(past):
+        return np.nan
+    return ((latest / past) ** (1/idx) - 1) * 100
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_fundamental_data(ticker):
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+        financials = t.financials
+        balance_sheet = t.balance_sheet
+        cashflow = t.cashflow
+
+        revenue = safe_get_series(financials, 'Total Revenue')
+        sales_growth_5y = cagr(revenue, years=5)
+        sales_growth_3y = cagr(revenue, years=3)
+
+        profit = safe_get_series(financials, 'Net Income')
+        profit_growth_5y = cagr(profit, years=5)
+        profit_growth_3y = cagr(profit, years=3)
+
+        market_cap = info.get('marketCap', 0) / 1e7
+
+        ebit_series = safe_get_series(financials, 'EBIT')
+        ta_series = safe_get_series(balance_sheet, 'Total Assets')
+        cl_series = safe_get_series(balance_sheet, 'Total Current Liabilities')
+        roce_values = []
+        for i in range(min(len(ebit_series), len(ta_series), len(cl_series))):
             ebit = ebit_series.iloc[i]
             ta = ta_series.iloc[i]
             cl = cl_series.iloc[i]
