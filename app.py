@@ -1834,10 +1834,32 @@ def main_app():
         else:
             st.info("No holdings data available. Please add stocks using the section below or click 'Use Sample Portfolio Data' to see a demo.")
 
-               # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
+                 # ----- Tab 4: Fundamental Qualifiers (Screener.in Criteria) -----
     with tab4:
         st.markdown("## 📈 Stocks Meeting All Fundamental Criteria")
         st.caption("**Filters:** Market Cap ₹10,000 Cr – ₹100,000 Cr, Sales growth 3Y > 20%, Profit growth 3Y > 20%, Promoter holding > 50%, ROCE > 15%, ROE > 15%, Piotroski Score ≥ 5")
+
+        # List of the 18 stocks from screener.in (with correct Yahoo Finance symbols)
+        screener_stocks = {
+            "International Ge": "INTLGE.NS",
+            "Mazagon Dock": "MAZDOCK.NS",         # already in ALL_STOCKS
+            "Travel Food": "TRAVELFOOD.NS",
+            "Triveni Turbine": "TRIVENITURB.NS",
+            "Premier Energies": "PREMIERENE.NS",
+            "Garden Reach": "GARDENREACH.NS",
+            "Waaree Energies": "WAAREEENER.NS",   # already in ALL_STOCKS
+            "Astrazeneca Pharma": "ASTRAZENECA.NS",
+            "Force Motors": "FORCEMOT.NS",
+            "Emmvee Photovol": "EMMVEE.NS",
+            "Inventurus Knowl": "INVENTURUS.NS",
+            "Jain Resource": "JAINRES.NS",
+            "Godfrey Phillips": "GODFREY.NS",
+            "Rubicon Research": "RUBICON.NS",
+            "Lumax Auto Tech": "LUMAXAUTO.NS",
+            "Torrent Power": "TORNTPOWER.NS",     # already in ALL_STOCKS? Add if not
+            "TVS Holdings": "TVSHOLD.NS",
+            "Kalyan Jewellers": "KALYANJEW.NS"
+        }
 
         # Helper functions (get_fundamental_metrics, calculate_piotroski_score) are assumed to exist elsewhere.
         # If not, define them here (they are already in the main script, but we'll ensure they're available).
@@ -1952,27 +1974,27 @@ def main_app():
             except Exception:
                 return 0
 
-        def scan_fundamentals(debug_mode=False):
+        # --- Scan only the screener stocks ---
+        def scan_fundamentals():
             qualified = []
             debug_data = []
-            total = len(ALL_STOCKS)
+            total = len(screener_stocks)
             progress_bar = st.progress(0, text="Scanning fundamentals...")
-            for i, (name, ticker) in enumerate(ALL_STOCKS.items()):
+            for i, (name, ticker) in enumerate(screener_stocks.items()):
                 progress_bar.progress((i+1)/total)
                 metrics = get_fundamental_metrics(ticker)
                 if not metrics:
-                    if debug_mode:
-                        debug_data.append({
-                            'Stock': name,
-                            'Status': 'No data',
-                            'Mkt Cap': 'N/A',
-                            'Sales Gr%': 'N/A',
-                            'Profit Gr%': 'N/A',
-                            'Promoter %': 'N/A',
-                            'ROCE %': 'N/A',
-                            'ROE %': 'N/A',
-                            'Piotroski': 'N/A'
-                        })
+                    debug_data.append({
+                        'Stock': name,
+                        'Status': 'No data',
+                        'Mkt Cap': 'N/A',
+                        'Sales Gr%': 'N/A',
+                        'Profit Gr%': 'N/A',
+                        'Promoter %': 'N/A',
+                        'ROCE %': 'N/A',
+                        'ROE %': 'N/A',
+                        'Piotroski': 'N/A'
+                    })
                     continue
                 mkt_cap = metrics['mkt_cap']
                 sales_gr = metrics['sales_gr']
@@ -1981,19 +2003,20 @@ def main_app():
                 roce = metrics['roce']
                 roe = metrics['roe']
                 piotroski = calculate_piotroski_score(ticker)
+
                 # Add to debug table
-                if debug_mode:
-                    debug_data.append({
-                        'Stock': name,
-                        'Status': 'Pass' if (10000 < mkt_cap < 100000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski >= 5) else 'Fail',
-                        'Mkt Cap': round(mkt_cap, 0) if mkt_cap != 0 else 'Missing',
-                        'Sales Gr%': round(sales_gr, 1) if sales_gr != 0 else 'Missing',
-                        'Profit Gr%': round(profit_gr, 1) if profit_gr != 0 else 'Missing',
-                        'Promoter %': round(promoter, 1) if promoter != 0 else 'Missing',
-                        'ROCE %': round(roce, 1) if roce != 0 else 'Missing',
-                        'ROE %': round(roe, 1) if roe != 0 else 'Missing',
-                        'Piotroski': piotroski if piotroski != 0 else 'Missing'
-                    })
+                debug_data.append({
+                    'Stock': name,
+                    'Status': 'Pass' if (10000 < mkt_cap < 100000 and sales_gr > 20 and profit_gr > 20 and promoter > 50 and roce > 15 and roe > 15 and piotroski >= 5) else 'Fail',
+                    'Mkt Cap': round(mkt_cap, 0) if mkt_cap != 0 else 'Missing',
+                    'Sales Gr%': round(sales_gr, 1) if sales_gr != 0 else 'Missing',
+                    'Profit Gr%': round(profit_gr, 1) if profit_gr != 0 else 'Missing',
+                    'Promoter %': round(promoter, 1) if promoter != 0 else 'Missing',
+                    'ROCE %': round(roce, 1) if roce != 0 else 'Missing',
+                    'ROE %': round(roe, 1) if roe != 0 else 'Missing',
+                    'Piotroski': piotroski if piotroski != 0 else 'Missing'
+                })
+
                 # Check qualification
                 if (10000 < mkt_cap < 100000 and 
                     sales_gr > 20 and profit_gr > 20 and 
@@ -2012,20 +2035,23 @@ def main_app():
             progress_bar.empty()
             return qualified, debug_data
 
-        with st.spinner("Fetching fundamentally qualified stocks..."):
-            qualified_stocks, debug_data = scan_fundamentals(debug_mode=True)
+        with st.spinner("Fetching data for the 18 screener stocks..."):
+            qualified_stocks, debug_data = scan_fundamentals()
 
+        # Display qualified stocks
         if qualified_stocks:
-            df_fund = pd.DataFrame(qualified_stocks)
-            st.dataframe(df_fund, use_container_width=True, hide_index=True)
+            st.markdown("### ✅ Stocks That Pass All Filters")
+            df_qualified = pd.DataFrame(qualified_stocks)
+            st.dataframe(df_qualified, use_container_width=True, hide_index=True)
         else:
-            st.info("No stocks passed all filters. Use the debug table below to see why each stock failed.")
+            st.info("No stocks from the screener list passed all filters. See debug table below for details.")
 
-        with st.expander("🔍 Debug: Why stocks are failing"):
+        # Debug table (always shows all 18 stocks with their actual metrics)
+        with st.expander("🔍 Debug: Full Details of the 18 Screener Stocks"):
             if debug_data:
                 df_debug = pd.DataFrame(debug_data)
                 st.dataframe(df_debug, use_container_width=True, hide_index=True)
-                st.caption("'Missing' indicates the data was not available from Yahoo Finance. 'N/A' means no fundamental data at all.")
+                st.caption("'Missing' indicates the field was not available from Yahoo Finance. 'N/A' means no fundamental data at all for that symbol.")
             else:
                 st.write("No debug data available.")
     # ------------------------------
