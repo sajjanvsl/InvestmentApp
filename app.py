@@ -917,7 +917,90 @@ def screen_stock(fund):
     return rec, all_criteria, criteria_met, values
 
 # ------------------------------
-# SCREENER FUNCTIONS (AI Swing and Intraday)
+# IMPROVED SWING SCANNER (more reliable)
+# ------------------------------
+def improved_ai_swing_signal(df, name):
+    if df.empty or len(df) < 50:
+        return None
+    try:
+        close = df['Close'].astype(float)
+        high = df['High'].astype(float)
+        low = df['Low'].astype(float)
+        volume = df['Volume'].astype(float)
+
+        # Technical indicators
+        rsi = RSIIndicator(close).rsi()
+        current_rsi = rsi.iloc[-1]
+        
+        # EMAs
+        ema20 = close.ewm(span=20, adjust=False).mean()
+        ema50 = close.ewm(span=50, adjust=False).mean()
+        
+        # Recent price action
+        recent_high = high[-20:].max()
+        recent_low = low[-20:].min()
+        current_price = close.iloc[-1]
+        
+        # Volume analysis
+        avg_volume = volume[-20:].mean()
+        volume_spike = volume.iloc[-1] > avg_volume * 1.2
+        
+        # Rule-based conditions (slightly relaxed)
+        rsi_condition = current_rsi < 50  # Relaxed from 45 to 50
+        ema_condition = ema20.iloc[-1] > ema50.iloc[-1]
+        price_condition = current_price > recent_low * 1.01  # Relaxed from 1.02 to 1.01
+        
+        # AI confidence
+        ai_confidence = 0.0
+        if SKLEARN_AVAILABLE:
+            model, scaler = train_simple_model(df)
+            if model is not None and scaler is not None:
+                try:
+                    # Prepare features
+                    last_rsi = current_rsi
+                    last_ma20 = ema20.iloc[-1]
+                    last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
+                    last_high_low = (high.iloc[-1] - low.iloc[-1]) / current_price
+                    last_vol_change = volume.pct_change().iloc[-1] if len(volume) > 1 else 0
+                    
+                    features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
+                                               columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
+                    features_scaled = scaler.transform(features_df)
+                    pred_proba = model.predict_proba(features_scaled)[0]
+                    ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
+                except:
+                    pass
+        
+        # Combined signal (more lenient)
+        rule_buy = (rsi_condition and ema_condition and price_condition and volume_spike)
+        
+        if rule_buy or ai_confidence > 0.55:  # Lowered threshold from 0.6 to 0.55
+            signal = "SWING BUY"
+            entry = current_price
+            target = recent_high * 1.05  # 5% above recent high
+            stop_loss = recent_low * 0.98
+            holding_days = 15
+            
+            return {
+                'Stock': name,
+                'Signal': signal,
+                'RSI': round(current_rsi, 1),
+                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
+                'Entry': round(entry, 2),
+                'Target': round(target, 2),
+                'Stop Loss': round(stop_loss, 2),
+                'Holding': holding_days,
+                'Volume Surge': 'Yes' if volume_spike else 'No'
+            }
+        return None
+    except Exception as e:
+        return None
+
+# Replace the old ai_swing_signal with the improved version
+ai_swing_signal = improved_ai_swing_signal
+
+# ------------------------------
+# SCREENER FUNCTIONS (AI Intraday)
 # ------------------------------
 def train_simple_model(df):
     if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
@@ -949,59 +1032,6 @@ def train_simple_model(df):
         return model, scaler
     except Exception:
         return None, None
-
-def ai_swing_signal(df, name):
-    if df.empty or len(df) < 50:
-        return None
-    try:
-        close = df['Close'].astype(float)
-        high = df['High'].astype(float)
-        low = df['Low'].astype(float)
-
-        rsi = RSIIndicator(close).rsi()
-        current_rsi = rsi.iloc[-1]
-        ma20 = close.rolling(20).mean()
-        ma50 = close.rolling(50).mean()
-        recent_high = high[-20:].max()
-        recent_low = low[-20:].min()
-        current_price = close.iloc[-1]
-
-        rule_buy = (current_rsi < 45 and ma20.iloc[-1] > ma50.iloc[-1] and current_price > recent_low * 1.02)
-
-        ai_confidence = 0.0
-        if SKLEARN_AVAILABLE:
-            model, scaler = train_simple_model(df)
-            if model is not None and scaler is not None:
-                last_rsi = current_rsi
-                last_ma20 = ma20.iloc[-1]
-                last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
-                last_high_low = (high.iloc[-1] - low.iloc[-1]) / current_price
-                last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
-                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
-                                           columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
-                features_scaled = scaler.transform(features_df)
-                pred_proba = model.predict_proba(features_scaled)[0]
-                ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
-
-        if rule_buy or ai_confidence > 0.6:
-            signal = "SWING BUY"
-            entry = current_price
-            target = recent_high
-            stop_loss = recent_low * 0.98
-            holding_days = 15
-            return {
-                'Stock': name,
-                'Signal': signal,
-                'RSI': round(current_rsi, 1),
-                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
-                'Entry': round(entry, 2),
-                'Target': round(target, 2),
-                'Stop Loss': round(stop_loss, 2),
-                'Holding': holding_days
-            }
-        return None
-    except Exception:
-        return None
 
 def ai_intraday_buy_signal(df, name):
     if df.empty or len(df) < 20:
@@ -1336,10 +1366,10 @@ def main_app():
         "📊 Custom Fair Value + Final Portfolio Action"
     ])
 
-    # ----- Tab 1: AI Swing Scanner -----
+    # ----- Tab 1: AI Swing Scanner (Improved) -----
     with tab1:
         st.markdown("## 🤖 AI Swing Trading Scanner")
-        st.caption("AI-powered swing signals combining technical rules with RandomForest.")
+        st.caption("AI-powered swing signals combining technical rules with RandomForest (relaxed criteria for better coverage).")
         with st.spinner("Fetching swing signals..."):
             swing_data = []
             today = datetime.now().date()
@@ -1360,7 +1390,7 @@ def main_app():
             progress_bar.empty()
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
-            display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'AI Conf', 'Fresh']
+            display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'AI Conf', 'Volume Surge', 'Fresh']
             swing_df = swing_df[[col for col in display_cols if col in swing_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df, width='stretch')
@@ -1388,7 +1418,7 @@ def main_app():
                                 target_zone=target_zone
                             )
         else:
-            no_stocks_message("AI Swing Scanner", "• RSI < 45<br>• 20 EMA > 50 EMA<br>• Price > recent low +2%<br>• AI confidence > 60%")
+            no_stocks_message("AI Swing Scanner", "• RSI < 50 (relaxed)<br>• 20 EMA > 50 EMA<br>• Price > recent low +1%<br>• Volume surge > 20%<br>• AI confidence > 55%")
 
     # ----- Tab 2: AI Intraday Picks -----
     with tab2:
@@ -1670,7 +1700,7 @@ def main_app():
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
 
-            # Apply styling using map instead of applymap (fix for newer pandas versions)
+            # Apply styling using map (fixed for newer pandas versions)
             def style_action(val):
                 if val == 'BUY':
                     return 'background-color: #d4edda'
@@ -1876,7 +1906,7 @@ def main_app():
                 st.rerun()
 
         # ------------------------------
-        # ALERT PRICES SECTION
+        # ALERT PRICES SECTION (with LTP display)
         # ------------------------------
         st.markdown("### ✏️ Set Buy & Sell Alert Prices")
         st.caption("Enter buy price (alert when price ≤ this) and sell price (alert when price ≥ this). Leave blank to disable.")
@@ -1884,22 +1914,31 @@ def main_app():
         alert_prices = st.session_state.alert_prices
         updated = False
 
+        # Create a dictionary of current prices for display
+        current_prices = {}
+        for stock in st.session_state.portfolio_df['Stock'].unique():
+            current_prices[stock] = st.session_state.portfolio_df[st.session_state.portfolio_df['Stock'] == stock]['Current Price'].values[0]
+
         for stock in st.session_state.portfolio_df['Stock'].unique():
             current = alert_prices.get(stock, {"buy": None, "sell": None})
-            col1, col2 = st.columns(2)
+            current_price = current_prices[stock]
+            col1, col2 = st.columns([1, 1])
             with col1:
+                st.markdown(f"**{stock}** (LTP: ₹{current_price:.2f})")
                 buy_price = st.number_input(
-                    f"{stock} Buy Price (₹)",
+                    f"Buy Price",
                     value=current["buy"] if current["buy"] is not None else 0.0,
                     step=5.0,
-                    key=f"buy_{stock}"
+                    key=f"buy_{stock}",
+                    label_visibility="collapsed"
                 )
             with col2:
                 sell_price = st.number_input(
-                    f"{stock} Sell Price (₹)",
+                    f"Sell Price",
                     value=current["sell"] if current["sell"] is not None else 0.0,
                     step=5.0,
-                    key=f"sell_{stock}"
+                    key=f"sell_{stock}",
+                    label_visibility="collapsed"
                 )
             new_buy = buy_price if buy_price > 0 else None
             new_sell = sell_price if sell_price > 0 else None
