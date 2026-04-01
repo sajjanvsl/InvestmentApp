@@ -293,7 +293,7 @@ class AlertSystem:
                     <td style="padding: 10px; border: 1px solid #ddd;"><strong>Time:</strong> None
                     <td style="padding: 10px; border: 1px solid #ddd;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} None
                 </tr>
-            </table>
+             </table>
             <p style="margin-top: 20px; color: #666;">
                 <small>This is an automated alert from Quant Fund Manager.</small>
             </p>
@@ -1670,20 +1670,27 @@ def main_app():
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
 
-            st.dataframe(
-                result_df.style.applymap(
-                    lambda x: 'background-color: #d4edda' if x == 'BUY' else
-                             ('background-color: #fff3cd' if x == 'BUY (DIP)' else
-                              ('background-color: #f8d7da' if x == 'SELL' else
-                               ('background-color: #cce5ff' if x == 'HOLD' else ''))),
-                    subset=['Action']
-                ).applymap(
-                    lambda x: 'background-color: #d4edda' if x == '✅ Yes' else ('background-color: #f8d7da' if x == '❌ No' else ''),
-                    subset=['In Buy Zone']
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
+            # Apply styling using map instead of applymap (fix for newer pandas versions)
+            def style_action(val):
+                if val == 'BUY':
+                    return 'background-color: #d4edda'
+                elif val == 'BUY (DIP)':
+                    return 'background-color: #fff3cd'
+                elif val == 'SELL':
+                    return 'background-color: #f8d7da'
+                elif val == 'HOLD':
+                    return 'background-color: #cce5ff'
+                return ''
+            
+            def style_in_buy_zone(val):
+                if val == '✅ Yes':
+                    return 'background-color: #d4edda'
+                elif val == '❌ No':
+                    return 'background-color: #f8d7da'
+                return ''
+            
+            styled_df = result_df.style.map(style_action, subset=['Action']).map(style_in_buy_zone, subset=['In Buy Zone'])
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
             st.markdown("---")
             st.subheader("📊 Portfolio Summary")
