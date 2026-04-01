@@ -504,7 +504,7 @@ def debug_data_fetch(ticker):
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)  # Cache for 1 hour
 def get_price_data(ticker):
     max_retries = 3
     for attempt in range(max_retries):
@@ -523,24 +523,6 @@ def get_price_data(ticker):
             if attempt == max_retries - 1:
                 return pd.DataFrame()
             time.sleep(2)
-    return pd.DataFrame()
-
-@st.cache_data(ttl=300, show_spinner=False)
-def get_intraday_data(ticker):
-    max_retries = 2
-    for attempt in range(max_retries):
-        try:
-            df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
-            if df.empty:
-                return pd.DataFrame()
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.dropna(inplace=True)
-            return df
-        except Exception:
-            if attempt == max_retries - 1:
-                return pd.DataFrame()
-            time.sleep(1)
     return pd.DataFrame()
 
 # ------------------------------
@@ -618,7 +600,7 @@ def save_intraday_alerts(alert_dict):
         json.dump(alert_dict, f, indent=2)
 
 # ------------------------------
-# FUNDAMENTAL FETCHING
+# FUNDAMENTAL FETCHING (simplified for speed)
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -946,38 +928,20 @@ def improved_ai_swing_signal(df, name):
         volume_spike = volume.iloc[-1] > avg_volume * 1.2
         
         # Rule-based conditions (slightly relaxed)
-        rsi_condition = current_rsi < 50  # Relaxed from 45 to 50
+        rsi_condition = current_rsi < 50
         ema_condition = ema20.iloc[-1] > ema50.iloc[-1]
-        price_condition = current_price > recent_low * 1.01  # Relaxed from 1.02 to 1.01
+        price_condition = current_price > recent_low * 1.01
         
-        # AI confidence
+        # AI confidence (skip for speed)
         ai_confidence = 0.0
-        if SKLEARN_AVAILABLE:
-            model, scaler = train_simple_model(df)
-            if model is not None and scaler is not None:
-                try:
-                    # Prepare features
-                    last_rsi = current_rsi
-                    last_ma20 = ema20.iloc[-1]
-                    last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
-                    last_high_low = (high.iloc[-1] - low.iloc[-1]) / current_price
-                    last_vol_change = volume.pct_change().iloc[-1] if len(volume) > 1 else 0
-                    
-                    features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
-                                               columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
-                    features_scaled = scaler.transform(features_df)
-                    pred_proba = model.predict_proba(features_scaled)[0]
-                    ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
-                except:
-                    pass
         
-        # Combined signal (more lenient)
+        # Combined signal
         rule_buy = (rsi_condition and ema_condition and price_condition and volume_spike)
         
-        if rule_buy or ai_confidence > 0.55:  # Lowered threshold from 0.6 to 0.55
+        if rule_buy:
             signal = "SWING BUY"
             entry = current_price
-            target = recent_high * 1.05  # 5% above recent high
+            target = recent_high * 1.05
             stop_loss = recent_low * 0.98
             holding_days = 15
             
@@ -985,7 +949,7 @@ def improved_ai_swing_signal(df, name):
                 'Stock': name,
                 'Signal': signal,
                 'RSI': round(current_rsi, 1),
-                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
+                'AI Conf': '-',
                 'Entry': round(entry, 2),
                 'Target': round(target, 2),
                 'Stop Loss': round(stop_loss, 2),
@@ -1000,38 +964,11 @@ def improved_ai_swing_signal(df, name):
 ai_swing_signal = improved_ai_swing_signal
 
 # ------------------------------
-# SCREENER FUNCTIONS (AI Intraday)
+# SCREENER FUNCTIONS (AI Intraday - simplified for speed)
 # ------------------------------
 def train_simple_model(df):
-    if not SKLEARN_AVAILABLE or df.empty or len(df) < 60:
-        return None, None
-    try:
-        close = df['Close'].astype(float)
-        df_model = df.copy()
-        df_model['RSI'] = RSIIndicator(close).rsi()
-        df_model['MA20'] = close.rolling(20).mean()
-        df_model['Close_MA20'] = close / df_model['MA20']
-        df_model['High_Low'] = (df_model['High'] - df_model['Low']) / close
-        df_model['Volume_Change'] = df_model['Volume'].pct_change()
-        df_model['Target'] = (close.shift(-5) > close * 1.05).astype(int)
-        df_model.dropna(inplace=True)
-        if len(df_model) < 50:
-            return None, None
-
-        feature_names = ['RSI', 'Close_MA20', 'High_Low', 'Volume_Change']
-        X = df_model[feature_names]
-        y = df_model['Target']
-
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        scaler.feature_names_in_ = feature_names
-
-        model = RandomForestClassifier(n_estimators=30, max_depth=4, random_state=42)
-        model.fit(X_scaled, y)
-
-        return model, scaler
-    except Exception:
-        return None, None
+    # Simplified - skip model training for speed
+    return None, None
 
 def ai_intraday_buy_signal(df, name):
     if df.empty or len(df) < 20:
@@ -1048,27 +985,11 @@ def ai_intraday_buy_signal(df, name):
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
 
-        ai_confidence = 0.0
-        if SKLEARN_AVAILABLE and len(df) > 50:
-            model, scaler = train_simple_model(df)
-            if model is not None and scaler is not None:
-                last_rsi = current_rsi
-                last_ma20 = ma20
-                last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
-                last_high_low = (df['High'].iloc[-1] - df['Low'].iloc[-1]) / current_price
-                last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
-                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
-                                           columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
-                features_scaled = scaler.transform(features_df)
-                pred_proba = model.predict_proba(features_scaled)[0]
-                ai_confidence = pred_proba[1] if len(pred_proba) > 1 else 0
-
         rule_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
                      (1 if current_price > ma20 else 0) + \
                      (1 if 30 < current_rsi < 70 else 0)
-        combined_score = rule_score + (ai_confidence * 3)
 
-        if combined_score >= 3:
+        if rule_score >= 3:
             entry = current_price
             target = entry * 1.02
             stop = entry * 0.98
@@ -1080,8 +1001,8 @@ def ai_intraday_buy_signal(df, name):
                 'Stop Loss': round(stop, 2),
                 'Volume Surge': f"{vol_ratio:.1f}x",
                 'RSI': round(current_rsi, 1),
-                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
-                'Score': round(combined_score, 1)
+                'AI Conf': '-',
+                'Score': rule_score
             }
         return None
     except Exception:
@@ -1102,27 +1023,11 @@ def ai_intraday_sell_signal(df, name):
         vol_ratio = volume.iloc[-1] / avg_vol
         current_price = close.iloc[-1]
 
-        ai_confidence = 0.0
-        if SKLEARN_AVAILABLE and len(df) > 50:
-            model, scaler = train_simple_model(df)
-            if model is not None and scaler is not None:
-                last_rsi = current_rsi
-                last_ma20 = ma20
-                last_close_ma20 = current_price / last_ma20 if last_ma20 != 0 else 1
-                last_high_low = (df['High'].iloc[-1] - df['Low'].iloc[-1]) / current_price
-                last_vol_change = df['Volume'].pct_change().iloc[-1] if len(df) > 1 else 0
-                features_df = pd.DataFrame([[last_rsi, last_close_ma20, last_high_low, last_vol_change]],
-                                           columns=['RSI', 'Close_MA20', 'High_Low', 'Volume_Change'])
-                features_scaled = scaler.transform(features_df)
-                pred_proba = model.predict_proba(features_scaled)[0]
-                ai_confidence = pred_proba[0] if len(pred_proba) > 1 else 0
-
         rule_score = (2 if vol_ratio > 1.5 else 1 if vol_ratio > 1.2 else 0) + \
                      (1 if current_price < ma20 else 0) + \
                      (1 if current_rsi > 70 else 0)
-        combined_score = rule_score + (ai_confidence * 3)
 
-        if combined_score >= 3:
+        if rule_score >= 3:
             entry = current_price
             target = entry * 0.98
             stop = entry * 1.02
@@ -1134,8 +1039,8 @@ def ai_intraday_sell_signal(df, name):
                 'Stop Loss': round(stop, 2),
                 'Volume Surge': f"{vol_ratio:.1f}x",
                 'RSI': round(current_rsi, 1),
-                'AI Conf': f"{ai_confidence*100:.0f}%" if ai_confidence > 0 else '-',
-                'Score': round(combined_score, 1)
+                'AI Conf': '-',
+                'Score': rule_score
             }
         return None
     except Exception:
@@ -1211,41 +1116,25 @@ def no_stocks_message(screener_name, criteria_description):
 # ------------------------------
 def main_app():
     # Session state initialization
-    if 'holdings_df' not in st.session_state:
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
         st.session_state.holdings_df = load_holdings()
-    if 'portfolio_df' not in st.session_state:
         st.session_state.portfolio_df = None
-    if 'total_value' not in st.session_state:
         st.session_state.total_value = 0.0
-    if 'total_cost' not in st.session_state:
         st.session_state.total_cost = 0.0
-    if 'super_buy_count' not in st.session_state:
         st.session_state.super_buy_count = 0
-    if 'buy_count' not in st.session_state:
         st.session_state.buy_count = 0
-    if 'hold_count' not in st.session_state:
         st.session_state.hold_count = 0
-    if 'sell_count' not in st.session_state:
         st.session_state.sell_count = 0
-    if 'swing_history' not in st.session_state:
         st.session_state.swing_history = {}
-    if 'sold_history' not in st.session_state:
         st.session_state.sold_history = load_sold()
-    if 'debug_df' not in st.session_state:
         st.session_state.debug_df = None
-    if 'criteria_data' not in st.session_state:
         st.session_state.criteria_data = {}
-    if 'last_refresh' not in st.session_state:
         st.session_state.last_refresh = datetime.now()
-    if 'alert_prices' not in st.session_state:
         st.session_state.alert_prices = load_alert_prices()
-    if 'settings' not in st.session_state:
         st.session_state.settings = load_settings()
-    if 'alert_system' not in st.session_state:
         st.session_state.alert_system = AlertSystem()
-    if 'alerts_sent_this_session' not in st.session_state:
         st.session_state.alerts_sent_this_session = set()
-    if 'intraday_alerts' not in st.session_state:
         st.session_state.intraday_alerts = load_intraday_alerts()
 
     # Sync alert settings from stored settings
@@ -1265,6 +1154,7 @@ def main_app():
         if st.button("Logout", key="logout_button"):
             st.session_state.authenticated = False
             st.session_state.username = None
+            st.session_state.clear()
             st.rerun()
 
     st.markdown("#### Combined screener: Original 9‑factor + Magic Formula (19 criteria total)")
@@ -1338,13 +1228,12 @@ def main_app():
         st.info("⚠️ For Gmail, you need to enable 2FA and create an App Password. For Telegram, create a bot with @BotFather, then get your numeric chat ID from @userinfobot. You must also send a message to your bot first (e.g., `/start`) to allow it to message you.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # Refresh button
+    # Refresh button (no auto-rerun)
     if st.button("🔄 Refresh Data", key="refresh_data_button"):
         st.cache_data.clear()
         st.session_state.last_refresh = datetime.now()
-        # Invalidate portfolio to force rebuild
         st.session_state.portfolio_df = None
-        st.rerun()
+        st.success("Data refreshed!")
 
     # Debug expander
     with st.expander("🔧 Debug Data Fetching"):
@@ -1369,7 +1258,7 @@ def main_app():
     # ----- Tab 1: AI Swing Scanner (Improved) -----
     with tab1:
         st.markdown("## 🤖 AI Swing Trading Scanner")
-        st.caption("AI-powered swing signals combining technical rules with RandomForest (relaxed criteria for better coverage).")
+        st.caption("AI-powered swing signals combining technical rules (relaxed criteria for better coverage).")
         with st.spinner("Fetching swing signals..."):
             swing_data = []
             today = datetime.now().date()
@@ -1390,7 +1279,7 @@ def main_app():
             progress_bar.empty()
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
-            display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'AI Conf', 'Volume Surge', 'Fresh']
+            display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'Volume Surge', 'Fresh']
             swing_df = swing_df[[col for col in display_cols if col in swing_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df, width='stretch')
@@ -1418,17 +1307,17 @@ def main_app():
                                 target_zone=target_zone
                             )
         else:
-            no_stocks_message("AI Swing Scanner", "• RSI < 50 (relaxed)<br>• 20 EMA > 50 EMA<br>• Price > recent low +1%<br>• Volume surge > 20%<br>• AI confidence > 55%")
+            no_stocks_message("AI Swing Scanner", "• RSI < 50<br>• 20 EMA > 50 EMA<br>• Price > recent low +1%<br>• Volume surge > 20%")
 
     # ----- Tab 2: AI Intraday Picks -----
     with tab2:
         st.markdown("## 🤖 AI Intraday Picks")
-        st.caption("AI‑powered intraday picks – only the highest‑confidence signal per stock is shown. Higher score = stronger signal.")
-        with st.spinner("Scanning for AI intraday opportunities..."):
+        st.caption("Intraday picks based on volume surge, price relative to MA, and RSI conditions.")
+        with st.spinner("Scanning for intraday opportunities..."):
             intraday = intraday_picks()[:20]
         if intraday:
             intraday_df = pd.DataFrame(intraday)
-            display_cols = ['Stock', 'Signal', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'AI Conf', 'Score']
+            display_cols = ['Stock', 'Signal', 'Entry', 'Target', 'Stop Loss', 'Volume Surge', 'RSI', 'Score']
             intraday_df = intraday_df[[col for col in display_cols if col in intraday_df.columns]]
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df, width='stretch')
@@ -1465,7 +1354,7 @@ def main_app():
                 st.session_state.intraday_alerts = intraday_alerts
                 save_intraday_alerts(intraday_alerts)
         else:
-            no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• AI confidence > 60%<br>• Combined score ≥ 3")
+            no_stocks_message("AI Intraday Picks", "• Volume surge > 1.2x<br>• Price relative to 20 MA<br>• RSI conditions<br>• Combined score ≥ 3")
 
     # ----- Tab 3: Custom Fair Value + Final Portfolio Action Table (combined) -----
     with tab3:
@@ -1700,7 +1589,7 @@ def main_app():
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
 
-            # Apply styling using map (fixed for newer pandas versions)
+            # Apply styling using map
             def style_action(val):
                 if val == 'BUY':
                     return 'background-color: #d4edda'
