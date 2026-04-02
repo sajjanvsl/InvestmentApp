@@ -600,7 +600,7 @@ def save_intraday_alerts(alert_dict):
         json.dump(alert_dict, f, indent=2)
 
 # ------------------------------
-# FUNDAMENTAL FETCHING (simplified for speed)
+# FUNDAMENTAL FETCHING
 # ------------------------------
 def safe_get_series(df, key):
     if df is not None and key in df.index:
@@ -794,15 +794,27 @@ def calculate_piotroski_score(ticker):
         return 0
 
 # ------------------------------
-# ROBUST FAIR VALUE CALCULATION
+# ROBUST FAIR VALUE CALCULATION (FIXED)
 # ------------------------------
 def get_reliable_eps_and_growth(ticker, current_price):
     fund = get_fundamental_data(ticker)
     if not fund:
+        # Fallback: use PE ratio if available
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info
+            pe = info.get('trailingPE')
+            if pe and pe > 0 and current_price > 0:
+                eps = current_price / pe
+                return eps, 10
+        except:
+            pass
         return None, None
 
     eps = None
     info = fund.get('info', {})
+    
+    # Try multiple EPS sources
     eps = info.get('trailingEps')
     if eps is None or eps <= 0:
         pe = info.get('trailingPE')
@@ -813,9 +825,15 @@ def get_reliable_eps_and_growth(ticker, current_price):
         shares = info.get('sharesOutstanding')
         if net_profit and shares and shares > 0:
             eps = (net_profit * 1e7) / shares
-    if eps and current_price > 0 and eps > current_price * 2:
-        eps = None
+    if eps is None or eps <= 0:
+        # Conservative estimate
+        eps = current_price / 20
+    
+    # Sanity check
+    if eps > current_price * 2:
+        eps = current_price / 20
 
+    # Growth with fallbacks
     growth = fund.get('profit_growth_3y')
     if not growth or growth <= 0:
         growth = fund.get('profit_growth_5y')
@@ -971,16 +989,14 @@ def improved_ai_swing_signal(df, name, debug_mode=False):
             return None, {'RSI': 'N/A', 'ema_condition': 'N/A', 'price_condition': 'N/A', 'volume_surge': 'N/A', 'pass': False, 'error': str(e)[:50]}
         return None
 
-# Replace the old ai_swing_signal with the improved version
 def ai_swing_signal(df, name):
     result, _ = improved_ai_swing_signal(df, name, debug_mode=False)
     return result
 
 # ------------------------------
-# SCREENER FUNCTIONS (AI Intraday - simplified for speed)
+# SCREENER FUNCTIONS (AI Intraday)
 # ------------------------------
 def train_simple_model(df):
-    # Simplified - skip model training for speed
     return None, None
 
 def ai_intraday_buy_signal(df, name):
@@ -1278,7 +1294,7 @@ def main_app():
         
         with st.spinner("Fetching swing signals..."):
             swing_data = []
-            debug_data = []  # For debug table
+            debug_data = []
             today = datetime.now().date()
             total_stocks = len(ALL_STOCKS)
             progress_bar = st.progress(0, text="Scanning stocks...")
@@ -1305,7 +1321,6 @@ def main_app():
                     low = df['Low'].astype(float)
                     volume = df['Volume'].astype(float)
                     
-                    # Technical indicators
                     rsi = RSIIndicator(close).rsi()
                     current_rsi = rsi.iloc[-1]
                     
@@ -1315,14 +1330,13 @@ def main_app():
                     
                     recent_low = low[-20:].min()
                     current_price = close.iloc[-1]
-                    price_condition = current_price > recent_low * 1.01  # +1%
+                    price_condition = current_price > recent_low * 1.01
                     
                     avg_volume = volume[-20:].mean()
                     volume_ratio = volume.iloc[-1] / avg_volume if avg_volume > 0 else 1
                     volume_surge = volume_ratio > 1.2
                     
                     rsi_condition = current_rsi < 50
-                    
                     pass_all = (rsi_condition and ema_condition and price_condition and volume_surge)
                     
                     if show_debug:
@@ -1347,7 +1361,6 @@ def main_app():
                             'Holding': 15,
                             'Volume Surge': f"{volume_ratio:.1f}x"
                         }
-                        # Check freshness
                         last_seen = st.session_state.swing_history.get(name)
                         if last_seen is None or (today - last_seen).days >= 5:
                             sig['Fresh'] = '✅ Fresh'
@@ -1370,7 +1383,6 @@ def main_app():
                 progress_bar.progress((idx+1)/total_stocks)
             progress_bar.empty()
         
-        # Display results
         if swing_data:
             swing_df = pd.DataFrame(swing_data)
             display_cols = ['Stock', 'Signal', 'RSI', 'Entry', 'Target', 'Stop Loss', 'Holding', 'Volume Surge', 'Fresh']
@@ -1378,7 +1390,6 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP SWING PICK</span>', unsafe_allow_html=True)
             st.dataframe(swing_df, width='stretch')
             
-            # Auto-alerts for fresh swing signals
             for sig in swing_data:
                 if sig.get('Fresh') == '✅ Fresh':
                     stock = sig['Stock']
@@ -1403,7 +1414,6 @@ def main_app():
         else:
             no_stocks_message("AI Swing Scanner", "• RSI < 50<br>• 20 EMA > 50 EMA<br>• Price > recent low +1%<br>• Volume surge > 20%")
         
-        # Show debug table if enabled
         if show_debug and debug_data:
             st.markdown("---")
             st.markdown("### 🔍 Debug: Why stocks are failing")
@@ -1424,7 +1434,6 @@ def main_app():
             st.markdown('<span class="top-pick-badge">⭐ TOP AI INTRADAY PICK</span>', unsafe_allow_html=True)
             st.dataframe(intraday_df, width='stretch')
             
-            # Auto-alerts for intraday picks (with cooldown per stock per day)
             today_str = datetime.now().strftime("%Y-%m-%d")
             intraday_alerts = st.session_state.intraday_alerts
             updated = False
@@ -1436,7 +1445,6 @@ def main_app():
                 stop_loss = row['Stop Loss']
                 key = f"intraday_{stock}_{signal_type}_{today_str}"
                 if key not in intraday_alerts:
-                    # Send alert
                     target_zone = f"Entry: ₹{entry}, Target: ₹{target}, SL: ₹{stop_loss}"
                     if st.session_state.get('telegram_enabled', False):
                         st.session_state.alert_system.send_telegram_alert(
@@ -1691,7 +1699,7 @@ def main_app():
             result_df['Priority_Num'] = result_df['Priority'].map(priority_order)
             result_df = result_df.sort_values('Priority_Num').drop(columns=['Priority_Num'])
 
-            # Apply styling using map
+            # Apply styling
             def style_action(val):
                 if val == 'BUY':
                     return 'background-color: #d4edda'
@@ -1732,14 +1740,6 @@ def main_app():
             with col5:
                 in_zone = len(result_df[result_df['In Buy Zone'] == '✅ Yes'])
                 st.metric("In Buy Zone", in_zone)
-
-            st.markdown("---")
-            st.subheader("🎯 Recommended Allocation by Priority")
-            allocation_summary = result_df.groupby('Priority')['Allocation'].first().reset_index()
-            if not allocation_summary.empty:
-                fig = px.pie(allocation_summary, values='Allocation', names='Priority', title='Suggested Portfolio Weight')
-                fig.update_traces(textposition='inside', textinfo='percent+label')
-                st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("---")
             st.subheader("🏆 Top 5 BUY Recommendations")
@@ -1882,9 +1882,7 @@ def main_app():
         st.markdown("## 📊 Your Holdings")
         st.dataframe(st.session_state.portfolio_df, use_container_width=True)
 
-        # ------------------------------
-        # DELETE STOCKS SECTION
-        # ------------------------------
+        # Delete Stocks Section
         st.markdown("### 🗑️ Delete Stocks from Holdings")
         with st.expander("Select stocks to delete"):
             all_stocks = st.session_state.holdings_df['Instrument'].tolist()
@@ -1892,20 +1890,17 @@ def main_app():
             if stocks_to_delete and st.button("Delete Selected Stocks"):
                 st.session_state.holdings_df = st.session_state.holdings_df[~st.session_state.holdings_df['Instrument'].isin(stocks_to_delete)]
                 save_holdings(st.session_state.holdings_df)
-                st.session_state.portfolio_df = None  # Force rebuild
+                st.session_state.portfolio_df = None
                 st.success(f"Deleted {len(stocks_to_delete)} stocks.")
                 st.rerun()
 
-        # ------------------------------
-        # ALERT PRICES SECTION (with LTP display)
-        # ------------------------------
+        # Alert Prices Section
         st.markdown("### ✏️ Set Buy & Sell Alert Prices")
         st.caption("Enter buy price (alert when price ≤ this) and sell price (alert when price ≥ this). Leave blank to disable.")
 
         alert_prices = st.session_state.alert_prices
         updated = False
 
-        # Create a dictionary of current prices for display
         current_prices = {}
         for stock in st.session_state.portfolio_df['Stock'].unique():
             current_prices[stock] = st.session_state.portfolio_df[st.session_state.portfolio_df['Stock'] == stock]['Current Price'].values[0]
