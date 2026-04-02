@@ -534,70 +534,82 @@ ALERT_PRICES_FILE = "alert_prices.json"
 INTRADAY_ALERTS_FILE = "intraday_alerts.json"
 
 def load_holdings():
-    if os.path.exists(HOLDINGS_FILE):
-        try:
+    try:
+        if os.path.exists(HOLDINGS_FILE):
             with open(HOLDINGS_FILE, 'r') as f:
                 data = json.load(f)
             if data:
                 return pd.DataFrame(data)
-        except:
-            pass
+    except Exception as e:
+        st.warning(f"Could not load holdings: {e}")
     return None
 
 def save_holdings(df):
-    if df is not None and not df.empty:
-        records = df.to_dict(orient='records')
-        with open(HOLDINGS_FILE, 'w') as f:
-            json.dump(records, f, indent=2)
-    else:
-        if os.path.exists(HOLDINGS_FILE):
-            os.remove(HOLDINGS_FILE)
+    try:
+        if df is not None and not df.empty:
+            records = df.to_dict(orient='records')
+            with open(HOLDINGS_FILE, 'w') as f:
+                json.dump(records, f, indent=2)
+        else:
+            if os.path.exists(HOLDINGS_FILE):
+                os.remove(HOLDINGS_FILE)
+    except Exception as e:
+        st.error(f"Error saving holdings: {e}")
 
 def load_sold():
-    if os.path.exists(SOLD_FILE):
-        try:
+    try:
+        if os.path.exists(SOLD_FILE):
             with open(SOLD_FILE, 'r') as f:
                 data = json.load(f)
             if data:
                 return pd.DataFrame(data)
-        except:
-            pass
+    except Exception:
+        pass
     return pd.DataFrame(columns=['Stock', 'Qty', 'Avg Price', 'Sell Price', 'Sell Date', 'P&L'])
 
 def save_sold(df):
-    if df is not None and not df.empty:
-        records = df.to_dict(orient='records')
-        with open(SOLD_FILE, 'w') as f:
-            json.dump(records, f, indent=2)
-    else:
-        if os.path.exists(SOLD_FILE):
-            os.remove(SOLD_FILE)
+    try:
+        if df is not None and not df.empty:
+            records = df.to_dict(orient='records')
+            with open(SOLD_FILE, 'w') as f:
+                json.dump(records, f, indent=2)
+        else:
+            if os.path.exists(SOLD_FILE):
+                os.remove(SOLD_FILE)
+    except Exception as e:
+        st.error(f"Error saving sold history: {e}")
 
 def load_alert_prices():
-    if os.path.exists(ALERT_PRICES_FILE):
-        try:
+    try:
+        if os.path.exists(ALERT_PRICES_FILE):
             with open(ALERT_PRICES_FILE, 'r') as f:
                 return json.load(f)
-        except:
-            pass
+    except Exception:
+        pass
     return {}
 
 def save_alert_prices(alert_dict):
-    with open(ALERT_PRICES_FILE, 'w') as f:
-        json.dump(alert_dict, f, indent=2)
+    try:
+        with open(ALERT_PRICES_FILE, 'w') as f:
+            json.dump(alert_dict, f, indent=2)
+    except Exception as e:
+        st.error(f"Error saving alert prices: {e}")
 
 def load_intraday_alerts():
-    if os.path.exists(INTRADAY_ALERTS_FILE):
-        try:
+    try:
+        if os.path.exists(INTRADAY_ALERTS_FILE):
             with open(INTRADAY_ALERTS_FILE, 'r') as f:
                 return json.load(f)
-        except:
-            pass
+    except Exception:
+        pass
     return {}
 
 def save_intraday_alerts(alert_dict):
-    with open(INTRADAY_ALERTS_FILE, 'w') as f:
-        json.dump(alert_dict, f, indent=2)
+    try:
+        with open(INTRADAY_ALERTS_FILE, 'w') as f:
+            json.dump(alert_dict, f, indent=2)
+    except Exception as e:
+        st.error(f"Error saving intraday alerts: {e}")
 
 # ------------------------------
 # FUNDAMENTAL FETCHING
